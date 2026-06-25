@@ -25,7 +25,7 @@ namespace opennest_2
     // "Options" input, where it overrides the matching on-canvas rows.
     public class component_nest_options : GH_Component
     {
-        public const int SOLVER_AUTO = -1, SOLVER_OPENNEST2 = 0, SOLVER_COLLISION = 1;
+        public const int SOLVER_AUTO = -1, SOLVER_OPENNEST2 = 0, SOLVER_COLLISION = 1, SOLVER_BATCH = 2;
         private int _solver = SOLVER_OPENNEST2;   // the solver whose option inputs are currently registered (never Auto)
 
         public component_nest_options()
@@ -41,7 +41,11 @@ namespace opennest_2
         public override Guid ComponentGuid => new Guid("9C4E1B27-6A8F-4D3B-8E52-71A0D2C5B9F4");
 
         private static List<NestOption> OptionsFor(int solver)
-            => solver == SOLVER_COLLISION ? NestOptionCatalog.Collision() : NestOptionCatalog.OpenNest2();
+        {
+            if (solver == SOLVER_COLLISION) return NestOptionCatalog.Collision();
+            if (solver == SOLVER_BATCH) return NestOptionCatalog.OpenNest2Batch();
+            return NestOptionCatalog.OpenNest2();
+        }
 
         protected override void RegisterInputParams(GH_Component.GH_InputParamManager pManager)
         {
@@ -49,13 +53,15 @@ namespace opennest_2
             {
                 Name = "Solver", NickName = "Solver",
                 Description = "Which solver these options are for. -1 = Auto (follow the solver this output is wired into); "
-                            + "0 = OpenNest2 (NFP + genetic algorithm); 1 = OpenNestCollision (physics). "
+                            + "0 = OpenNest2 (NFP + genetic algorithm); 1 = OpenNestCollision (physics); "
+                            + "2 = OpenNest2 Batch (NFP-GA batched for large part counts). "
                             + "Changing it swaps the inputs below to that solver's option set.",
                 Access = GH_ParamAccess.item, Optional = true,
             };
             solver.AddNamedValue("Auto (follow wired solver)", SOLVER_AUTO);
             solver.AddNamedValue("OpenNest2 (NFP-GA)", SOLVER_OPENNEST2);
             solver.AddNamedValue("OpenNestCollision (physics)", SOLVER_COLLISION);
+            solver.AddNamedValue("OpenNest2 Batch", SOLVER_BATCH);
             solver.SetPersistentData(SOLVER_AUTO);
             pManager.AddParameter(solver);
             foreach (var p in BuildOptionInputs(_solver)) pManager.AddParameter(p);
@@ -66,7 +72,7 @@ namespace opennest_2
         // detected solver; `both` is true when wired to BOTH (ambiguous -> caller falls back to OpenNest2).
         private int DetectDownstreamSolver(out bool both)
         {
-            bool s2 = false, sc = false;
+            bool s2 = false, sc = false, sb = false;
             var recipients = Params.Output[0].Recipients;
             if (recipients != null)
                 foreach (var r in recipients)
@@ -74,9 +80,12 @@ namespace opennest_2
                     var owner = r?.Attributes?.GetTopLevel?.DocObject;
                     if (owner is component2_nest) s2 = true;
                     else if (owner is component_nest) sc = true;
+                    else if (owner is component_nest_batch) sb = true;
                 }
-            both = s2 && sc;
-            return (sc && !s2) ? SOLVER_COLLISION : SOLVER_OPENNEST2;   // OpenNest2 also covers none/both
+            int count = (s2 ? 1 : 0) + (sc ? 1 : 0) + (sb ? 1 : 0);
+            both = count > 1;                                  // wired to more than one solver type (ambiguous)
+            if (count == 1) { if (sc) return SOLVER_COLLISION; if (sb) return SOLVER_BATCH; return SOLVER_OPENNEST2; }
+            return SOLVER_OPENNEST2;                            // none or ambiguous -> default
         }
 
         public override void AddedToDocument(GH_Document document)
@@ -139,7 +148,7 @@ namespace opennest_2
         private void SyncToDownstream()
         {
             int solverInput = CurrentSolverInput();
-            if (solverInput == SOLVER_OPENNEST2 || solverInput == SOLVER_COLLISION) return;  // explicit override; don't auto-follow
+            if (solverInput == SOLVER_OPENNEST2 || solverInput == SOLVER_COLLISION || solverInput == SOLVER_BATCH) return;  // explicit override; don't auto-follow
             int detected = DetectDownstreamSolver(out _);
             if (detected == _solver) return;
             _solver = detected;   // commit now; the scheduled callback below brings the params in line
@@ -203,14 +212,14 @@ namespace opennest_2
             DA.GetData(0, ref solverInput);
 
             int desired;
-            if (solverInput == SOLVER_OPENNEST2 || solverInput == SOLVER_COLLISION)
+            if (solverInput == SOLVER_OPENNEST2 || solverInput == SOLVER_COLLISION || solverInput == SOLVER_BATCH)
             {
                 desired = solverInput;          // explicit override
             }
             else
             {
                 if (solverInput != SOLVER_AUTO)
-                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Solver must be -1 (Auto), 0 (OpenNest2) or 1 (OpenNestCollision); using Auto.");
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Solver must be -1 (Auto), 0 (OpenNest2), 1 (OpenNestCollision) or 2 (OpenNest2 Batch); using Auto.");
                 desired = DetectDownstreamSolver(out bool both);
                 if (both) AddRuntimeMessage(GH_RuntimeMessageLevel.Remark, "Auto: wired to both solvers; showing OpenNest2 options. Set Solver to 0 or 1 to choose.");
             }
@@ -291,7 +300,7 @@ namespace opennest_2
                 if (reader.ItemExists("nest_options_solver"))
                 {
                     int s = reader.GetInt32("nest_options_solver");
-                    if (s != _solver && (s == SOLVER_OPENNEST2 || s == SOLVER_COLLISION))
+                    if (s != _solver && (s == SOLVER_OPENNEST2 || s == SOLVER_COLLISION || s == SOLVER_BATCH))
                     {
                         _solver = s;
                         RebuildOptionInputs();

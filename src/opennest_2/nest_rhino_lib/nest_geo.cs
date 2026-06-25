@@ -834,6 +834,93 @@ namespace nest_rhino_lib
         }
 
         /// <summary>
+        /// Builds a NEW nest_geo containing only the selected PART GROUPS (entries in geometry_sorted /
+        /// boundary_sorted) of this instance — the inverse of <see cref="Merge"/>, used by the batch nester
+        /// to nest a subset of parts at a time. All per-geometry arrays (geometry, attributes,
+        /// geometry_attributes, copies, rotations, indices) are COMPACTED and re-indexed so the result is a
+        /// standalone, solver-ready nest_geo. Geometry is duplicated, so the subset never aliases the master.
+        /// </summary>
+        /// <param name="groups">Master group indices (into geometry_sorted/boundary_sorted) to extract.</param>
+        /// <param name="localToMaster">Out: subset group index -> master group index (parallel to the
+        /// result's geometry_sorted), so the caller can map results back to the original parts.</param>
+        public nest_geo Subset(IReadOnlyList<int> groups, out List<int> localToMaster)
+        {
+            var sub = new nest_geo();
+            sub.attribute_port_count = this.attribute_port_count < 1 ? 1 : this.attribute_port_count;
+            localToMaster = new List<int>();
+            if (groups == null) return sub;
+
+            // old geometry index -> new (compacted) geometry index; appends the per-index arrays on first use.
+            var remap = new Dictionary<int, int>();
+            int NewIdx(int oldIdx)
+            {
+                if (remap.TryGetValue(oldIdx, out var ni)) return ni;
+                ni = sub.geometry.Count;
+                remap[oldIdx] = ni;
+                sub.geometry.Add(this.geometry[oldIdx].Duplicate());
+                sub.attributes.Add(oldIdx < this.attributes.Count ? this.attributes[oldIdx].Duplicate() : new ObjectAttributes());
+                var ga = (oldIdx < this.geometry_attributes.Count && this.geometry_attributes[oldIdx] != null)
+                    ? this.geometry_attributes[oldIdx] : new GeometryBase[0];
+                var gaCopy = new GeometryBase[ga.Length];
+                for (int k = 0; k < ga.Length; k++) gaCopy[k] = ga[k].Duplicate();
+                sub.geometry_attributes.Add(gaCopy);
+                var gp = (oldIdx < this.geometry_attribute_ports.Count && this.geometry_attribute_ports[oldIdx] != null)
+                    ? this.geometry_attribute_ports[oldIdx] : new int[ga.Length];
+                sub.geometry_attribute_ports.Add((int[])gp.Clone());
+                sub.copies.Add(oldIdx < this.copies.Count ? this.copies[oldIdx] : 1);
+                sub.rotations.Add(oldIdx < this.rotations.Count ? this.rotations[oldIdx] : 0);
+                sub.indices.Add(ni);   // identity over the compacted list
+                return ni;
+            }
+
+            foreach (int g in groups)
+            {
+                if (g < 0 || g >= this.geometry_sorted.Count || g >= this.boundary_sorted.Count) continue;
+                localToMaster.Add(g);
+
+                var gs = new List<int>(this.geometry_sorted[g].Count);
+                foreach (int oldGeo in this.geometry_sorted[g]) gs.Add(NewIdx(oldGeo));
+                sub.geometry_sorted.Add(gs);
+
+                var bs = new List<Tuple<int, Polyline, BoundingBox, Curve>>(this.boundary_sorted[g].Count);
+                foreach (var t in this.boundary_sorted[g])
+                {
+                    int ni = NewIdx(t.Item1);
+                    var curveCopy = t.Item4 != null ? t.Item4.DuplicateCurve() : null;
+                    bs.Add(Tuple.Create(ni, t.Item2.Duplicate(), t.Item3, curveCopy));
+                    sub.boudary_indices_non_sorted.Add(ni);
+                    sub.boundary_curves_non_sorted.Add(curveCopy);
+                }
+                sub.boundary_sorted.Add(bs);
+
+                if (g < this.disply_texts.Count) sub.disply_texts.Add(this.disply_texts[g]);
+            }
+            return sub;
+        }
+
+        /// <summary>Outer-loop nesting-polyline area of each part group (index-aligned with
+        /// geometry_sorted / boundary_sorted). Used by area-aware batch distribution.</summary>
+        public List<double> GroupAreas()
+        {
+            var areas = new List<double>(this.boundary_sorted.Count);
+            foreach (var grp in this.boundary_sorted)
+                areas.Add(grp != null && grp.Count > 0 ? poly_area(grp[0].Item2) : 0.0);
+            return areas;
+        }
+
+        /// <summary>Copy count of each part group (index-aligned with geometry_sorted).</summary>
+        public List<int> GroupCopies()
+        {
+            var c = new List<int>(this.geometry_sorted.Count);
+            foreach (var grp in this.geometry_sorted)
+            {
+                int gi = (grp != null && grp.Count > 0) ? grp[0] : -1;
+                c.Add(gi >= 0 && gi < this.copies.Count ? this.copies[gi] : 1);
+            }
+            return c;
+        }
+
+        /// <summary>
         /// Merges multiple nest_geo instances into a single combined nest_geo instance
         /// </summary>
         /// <param name="nestGeos">List of nest_geo instances to merge</param>

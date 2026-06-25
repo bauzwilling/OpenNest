@@ -29,6 +29,33 @@ namespace opennest_2
             NestOption.Text("font", "Sheet Font", "MecSoft_Font-1 1", "Sheet-number label: font name + text size."),
         };
 
+        // OpenNest2 Batch (same NFP/GA engine, wrapped in the batch orchestrator for large part counts).
+        // Adds Batch Size + Distribution + Max Rounds in front of the engine options. The batch component
+        // reads its own keys BY NAME (batch_size / distribution / max_rounds) and builds the engine
+        // parameters from the remaining keys by name too, so order is NOT load-bearing here — except the
+        // font row, which stays LAST to match BuildEngineOptionStrings. The Distribution choice is generated
+        // from the distributor registry so a newly registered method appears automatically.
+        public static List<NestOption> OpenNest2Batch()
+        {
+            // Distribution choice: tokens are the INTEGER index (0,1,2,…) of each registered method, not its
+            // string key — so it behaves like every other Choice (the NestOptions node maps Choice tokens to
+            // Param_Integer named values, and the batch component reads it via OptChoiceIndex). Labels still
+            // come from the registry, so a newly registered method appears automatically.
+            var all = nest_lib.batch.DistributorRegistry.All();
+            var labels = new string[all.Count];
+            var tokens = new string[all.Count];
+            for (int i = 0; i < all.Count; i++) { labels[i] = all[i].Label; tokens[i] = i.ToString(System.Globalization.CultureInfo.InvariantCulture); }
+
+            var list = new List<NestOption>
+            {
+                NestOption.Number("batch_size", "Batch Size", 50, 1, 100000, 0, "Parts nested per batch (the NFP engine is fast and accurate up to ~50). 1000 parts / 50 = 20 batches."),
+                NestOption.Choice("distribution", "Distribution", labels, tokens, 0, "How the parts are split into batches. Area-Normal keeps each batch's area distribution the same as the whole set."),
+                NestOption.Number("max_rounds", "Max Rounds", 12, 1, 100, 0, "Safety cap on leftover-consolidation rounds (last sheets re-nested together until the leftover fits one batch)."),
+            };
+            list.AddRange(OpenNest2());
+            return list;
+        }
+
         // OpenNestCollision (physics / penetration-depth solver, nest_physics.dll). ORDER IS LOAD-BEARING:
         // NpRun.Flatten maps the first numeric rows to GetP(0..2) by index (rotations, seed, starts);
         // element_holes/poles/compact/fit are parsed by name; the font row must stay LAST.
