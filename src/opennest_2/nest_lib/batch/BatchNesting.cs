@@ -208,6 +208,14 @@ namespace nest_lib.batch
                 pl.GlobalSheet = g;
             }
 
+            // Account for EVERY part: any instance neither committed nor already flagged unplaced (e.g. parts
+            // left unprocessed when a timeout/ESC cancelled the run) is reported as unplaced so nothing is
+            // silently dropped from the output.
+            var seen = new HashSet<int>(committed.Count + plan.Unplaced.Count);
+            foreach (var pl in committed) seen.Add(pl.InstanceId);
+            foreach (var u in plan.Unplaced) seen.Add(u);
+            foreach (var p in parts) if (!seen.Contains(p.Id)) plan.Unplaced.Add(p.Id);
+
             plan.Placements = committed;
             plan.TotalSheets = sheetIndex.Count;
             plan.Rounds = round;

@@ -481,11 +481,13 @@ namespace opennest_2
             }
             DA.SetDataTree(5, sheetTxt);
 
-            // status + warnings
+            // status + errors
             int placedCount = placements.Count;
             int unplaced = plan != null ? plan.Unplaced.Count : 0;
-            this.Message = (_cancelled ? "stopped — " : "") + $"{totalSheets} sheet(s), {_engine.SolvesRun} solve(s)";
-            if (unplaced > 0) AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, $"{unplaced} part(s) could not be placed on any sheet.");
+            this.Message = (_cancelled ? "stopped — " : "") + $"{totalSheets} sheet(s)" + (unplaced > 0 ? $", {unplaced} unnested" : "");
+            if (unplaced > 0)
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Error,
+                    $"{unplaced} part(s) were not nested" + (_cancelled ? " (stopped early — raise Timeout or Iterations, or press Run again)." : " — they don't fit any sheet."));
 
             _o_sheets = output_sheets; _o_borders = borders; _o_allgeo = allGeo; _o_xforms = xforms;
             _o_sheetid = sheetId; _o_sheettxt = sheetTxt; _o_attr = attrs; _hasResult = true;
