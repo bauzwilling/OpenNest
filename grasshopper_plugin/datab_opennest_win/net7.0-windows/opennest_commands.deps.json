@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v7.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v7.0": {
+      "opennest_commands/2.89.0.0": {
+        "runtime": {
+          "opennest_commands.rhp": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "opennest_commands/2.89.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

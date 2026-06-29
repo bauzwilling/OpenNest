@@ -7,7 +7,7 @@ using Rhino.PlugIns;
 // (a Grasshopper .gha cannot register commands). The GUID is this plug-in's id (distinct from the
 // opennest_2 GH library id). PlugInDescription attributes are surfaced in Rhino's Plug-in manager.
 [assembly: System.Runtime.InteropServices.Guid("b8d4e2a1-7c3f-4e6a-9b2d-1f5a8c0e3d77")]
-[assembly: PlugInDescription(DescriptionType.Organization, "OpenNest")]
+[assembly: PlugInDescription(DescriptionType.Organization, "DataB (modified OpenNest)")]
 [assembly: PlugInDescription(DescriptionType.Email, "petrasvestartas@gmail.com")]
 
 namespace opennest_commands
@@ -30,11 +30,13 @@ namespace opennest_commands
 
         private static Assembly ResolveOpenNest2(object sender, ResolveEventArgs args)
         {
-            if (new AssemblyName(args.Name).Name != "opennest_2") return null;
+            // The nesting types now live in DataB.OpenNest.gha (the DataB-rebranded fork). Resolve it from this
+            // plug-in's folder when a command runs before Grasshopper has loaded the .gha.
+            if (new AssemblyName(args.Name).Name != "DataB.OpenNest") return null;
             string dir = Path.GetDirectoryName(typeof(OpenNestCommandPlugIn).Assembly.Location);
             foreach (var ext in new[] { ".gha", ".dll" })
             {
-                string p = Path.Combine(dir ?? "", "opennest_2" + ext);
+                string p = Path.Combine(dir ?? "", "DataB.OpenNest" + ext);
                 if (File.Exists(p)) return Assembly.LoadFrom(p);
             }
             return null;
