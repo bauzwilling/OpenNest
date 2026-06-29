@@ -10,6 +10,9 @@
     <TargetFrameworks>net7.0-windows;net7.0;net48</TargetFrameworks>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <TargetExt>.gha</TargetExt>
+    <!-- DataB private fork: ship as DataB.OpenNest.gha so it never collides with a public OpenNest.gha.
+         Component GUIDs are unchanged (DataB environment does not run the public package alongside). -->
+    <AssemblyName>DataB.OpenNest</AssemblyName>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <!-- Suppressed warnings:
          NU1701: Package compatibility warning
@@ -31,11 +34,12 @@
   </PropertyGroup>
   
   <PropertyGroup>
-    <!-- Specifies information for Assembly and Yak -->
-    <Version>1.0</Version>
-    <Title>opennest_2</Title>
-    <Company>opennest_2 Authors</Company>
-    <Description>Description of opennest_2</Description>
+    <!-- Specifies information for Assembly and Yak. The assembly AssemblyVersion/FileVersion are set in
+         nest_rhino_lib/Properties/AssemblyInfo.cs (compiled into this .gha); keep both at 2.89.0.0. -->
+    <Version>2.89.0.0</Version>
+    <Title>DataB OpenNest</Title>
+    <Company>DataB</Company>
+    <Description>DataB-modified fork of OpenNest (2D nesting). Private package — not the official OpenNest.</Description>
     <BaseOutputPath></BaseOutputPath>
     <!-- <BaseOutputPath>C:\Users\petras\AppData\Roaming\Grasshopper\Libraries</BaseOutputPath> -->
   </PropertyGroup>

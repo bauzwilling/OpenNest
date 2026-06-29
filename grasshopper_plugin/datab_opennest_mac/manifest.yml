@@ -1,0 +1,11 @@
+---
+name: DataB_OpenNest
+version: 2.89.0.0
+authors:
+- DataB
+description: >
+  DataB-modified private fork of OpenNest (2D polygonal nesting). Ships as
+  DataB.OpenNest.gha so it does not collide with the public OpenNest package.
+  NOT the official OpenNest. Based on OpenNest by Petras Vestartas (MIT) — see NOTICE.
+url: https://github.com/bauzwilling/OpenNest
+icon: icon.png
