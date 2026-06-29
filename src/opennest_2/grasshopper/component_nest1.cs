@@ -53,6 +53,11 @@ namespace opennest_2
         // ---- live preview (~8 fps timer reading the in-flight solver) ----
         private readonly System.Timers.Timer _timer;
         private volatile nest_lib.rhino_example _liveNest;        // the currently-solving try
+
+        // Optional wall-clock timeout (seconds; 0 = off). Breaks the multi-start sweep but still publishes the best.
+        private readonly TimeoutWatch _timeout = new TimeoutWatch();
+        private double _timeoutSecs = 0;
+        private volatile bool _stopSweep = false;
         private volatile List<Polyline> _previewBorders = new List<Polyline>();
         private List<Polyline> _previewSheets = new List<Polyline>();
         private int _totalGenerations = 1;
@@ -121,6 +126,7 @@ namespace opennest_2
             pManager.AddIntegerParameter("Seed", "Seed", "Random seed for reproducible results.", GH_ParamAccess.item, 1);
             pManager.AddBooleanParameter("Reset", "Reset", "Set TRUE (wire a Button) to clear the whole component instantly and drop any running solve.", GH_ParamAccess.item, false);
             pManager.AddBooleanParameter("Run", "Run", "Wire a Boolean Toggle. TRUE = solve now and re-solve automatically when an input changes (background thread, Rhino stays responsive, live preview). FALSE = hold the last result. Use Reset to clear.", GH_ParamAccess.item, false);
+            pManager.AddNumberParameter("Timeout", "Timeout", "Stop after this many seconds and keep the best layout so far (0 = no limit).", GH_ParamAccess.item, 0);
 
             for (int i = 2; i < pManager.ParamCount; i++) pManager[i].Optional = true;
         }
@@ -249,8 +255,17 @@ namespace opennest_2
             if (_haveEngine) { _haveEngine = false; EngineGate.Nfp.Release(); }
         }
 
-        private void StartClocks() { try { _timer.Start(); } catch { } }
-        private void StopClocks() { try { _timer.Stop(); } catch { } }
+        private void StartClocks() { try { _timer.Start(); } catch { } _timeout.Start(_timeoutSecs, TimeoutCancel); }
+        private void StopClocks() { try { _timer.Stop(); } catch { } _timeout.Stop(); }
+
+        // Wall-clock timeout fired: stop the in-flight try + break the sweep, but still publish the best so far.
+        private void TimeoutCancel()
+        {
+            if (_phase != Phase.Computing) return;
+            _stopSweep = true;
+            var ln = _liveNest; if (ln != null) ln.StopRequested = true;
+            this.Message = "timeout — keeping best so far";
+        }
 
         protected override void SolveInstance(IGH_DataAccess DA)
         {
@@ -258,6 +273,7 @@ namespace opennest_2
             this.run = false; this.tries = 1;
             DA.GetData(8, ref reset);
             DA.GetData(9, ref this.run);
+            double timeoutSecs = 0; DA.GetData(10, ref timeoutSecs); _timeoutSecs = Math.Max(0, timeoutSecs);
             var parameters = process_inputs(DA);   // reads ports 2..7
 
             // Embedded / headless host (cluster, ScriptEditor "Create Project", Player, Compute): the async
@@ -376,6 +392,7 @@ namespace opennest_2
             _liveNest = null;
             _currentTry = 0;
 
+            _stopSweep = false;
             int myGen = ++_solveGen;
             _phase = Phase.Computing;
 
@@ -383,7 +400,9 @@ namespace opennest_2
             {
                 // Run the multi-start sweep INLINE (blocking) and publish in this same pass.
                 this.Message = "solving (embedded)…";
+                _timeout.Start(_timeoutSecs, TimeoutCancel);
                 RunSweepCore(myGen);
+                _timeout.Stop();
                 _phase = Phase.Idle;
                 nest = _bestNest; nest_geo = _bestGeo;
                 ResetDisplayLists();
@@ -427,7 +446,7 @@ namespace opennest_2
 
                 for (int t = 0; t < _snapTries; t++)
                 {
-                    if (myGen != _solveGen) break;   // superseded (Reset / newer launch) -> stop the sweep
+                    if (myGen != _solveGen || _stopSweep) break;   // superseded, or timeout/cancel -> stop the sweep (still publishes best)
                     _currentTry = t + 1;
 
                     var geoTry = _snapTemplate.duplicate();

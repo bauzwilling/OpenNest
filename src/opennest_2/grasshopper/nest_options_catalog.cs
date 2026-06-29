@@ -26,6 +26,7 @@ namespace opennest_2
             NestOption.Number("population", "Population", 10, 1, 100000, 0, "GA population size."),
             NestOption.Choice("all_rotations", "All Rotations", new[] { "Off", "On" }, new[] { "0", "1" }, 1, "Try every orientation per part for tightest packing — C++ engine only (the C# engine ignores it; it uses 'Rotations'). Default ON; capped at 8 orientations so a large 'Rotations' value can't hang the solver."),
             NestOption.Choice("element_holes", "Element Holes", new[] { "Off", "Fill" }, new[] { "0", "1" }, 1, "Nest smaller parts INSIDE larger parts' holes."),
+            NestOption.Number("timeout", "Timeout (s)", 0, 0, 1000000, 0, "Stop after this many seconds and keep the best layout so far (0 = no limit). Same as pressing ESC, on a timer. For Batch this caps the whole run."),
             NestOption.Text("font", "Sheet Font", "MecSoft_Font-1 1", "Sheet-number label: font name + text size."),
         };
 
@@ -68,6 +69,7 @@ namespace opennest_2
             NestOption.Number("poles", "Poles", 48, 4, 64, 0, "Inscribed circles per part for collision tests; more = more accurate (cleaner pack), fewer = faster but can pack worse."),
             NestOption.Choice("compact", "Compact", new[] { "Off", "Bottom-Left", "Multi" }, new[] { "0", "1", "2" }, 1, "Post-pack tightening slide."),
             NestOption.Choice("fit", "Fit", new[] { "One sheet (max fill)", "All parts (fewest sheets)" }, new[] { "1", "0" }, 1, "One sheet = fill a SINGLE sheet as full as possible; parts that don't fit are placed OUTSIDE. All parts = use as many sheets as needed so nothing is left off."),
+            NestOption.Number("timeout", "Timeout (s)", 0, 0, 1000000, 0, "Stop after this many seconds and keep the best layout so far (0 = no limit). Same as pressing ESC, on a timer."),
             NestOption.Text("font", "Sheet Font", "MecSoft_Font-1 1", "Sheet-number label: font name + text size."),
         };
 

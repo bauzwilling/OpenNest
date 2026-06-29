@@ -71,6 +71,10 @@ namespace opennest_2
         private volatile bool _runActive = false;
         private bool _prevRunInput = false;
 
+        // Optional wall-clock timeout (seconds; 0 = off). Trips the same stop path as ESC.
+        private readonly TimeoutWatch _timeout = new TimeoutWatch();
+        private double _timeoutSecs = 0;
+
         public override void DrawViewportWires(IGH_PreviewArgs args)
         {
             var col = Attributes.Selected ? args.WireColour_Selected : args.WireColour;
@@ -410,6 +414,8 @@ namespace opennest_2
                         && int.TryParse(t[1], out int eh)) useHoles = eh;
                 }
 
+                _timeoutSecs = OptNum("timeout", 0);   // 0 = no limit
+
                 int max_iterations = 10;
                 DA.GetData(3, ref max_iterations);   // Iterations shifted to index 3 (Options inserted at 2)
                 if (max_iterations < 1) max_iterations = 1;
@@ -438,6 +444,7 @@ namespace opennest_2
                     // Run the solve INLINE (blocking) and fall through to PASS 2 to publish in this same pass.
                     _phase = Phase.Computing;
                     this.Message = "solving (embedded)…";
+                    _timeout.Start(_timeoutSecs, TimeoutCancel);   // fires on a threadpool thread; the inline solve polls StopRequested
                     try { _pendingNest.static_solver(ref _pendingNestGeo); }
                     catch (Exception ex) { Rhino.RhinoApp.WriteLine(ex.ToString()); }
                     finally { if (gotEngine) ReleaseEngine(); }
@@ -668,12 +675,14 @@ namespace opennest_2
         {
             Rhino.RhinoApp.EscapeKeyPressed += OnEscape;   // ESC fires now that the UI thread is free
             _timer.Start();
+            _timeout.Start(_timeoutSecs, TimeoutCancel);
         }
 
         private void StopClocks()
         {
             try { Rhino.RhinoApp.EscapeKeyPressed -= OnEscape; } catch { }
             try { _timer.Stop(); } catch { }
+            _timeout.Stop();
         }
 
         private void OnEscape(object sender, EventArgs e)
@@ -682,6 +691,16 @@ namespace opennest_2
             {
                 _runActive = false;   // ESC ends the live session (no auto-restart afterwards)
                 _pendingNest.StopRequested = true; _cancelled = true; this.Message = "stopping…";
+            }
+        }
+
+        // Wall-clock timeout fired: stop the solve and keep the best layout so far (same as ESC, on a timer).
+        private void TimeoutCancel()
+        {
+            if (_phase == Phase.Computing && _pendingNest != null)
+            {
+                _runActive = false;   // don't auto-restart (would just time out again)
+                _pendingNest.StopRequested = true; _cancelled = true; this.Message = "timeout — keeping best so far";
             }
         }
 

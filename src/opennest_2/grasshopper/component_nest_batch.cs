@@ -42,6 +42,10 @@ namespace opennest_2
         private string _pendingSig = null;
         private volatile bool _restartRequested = false;   // inputs changed mid-solve -> re-nest after publish
 
+        // Optional wall-clock timeout for the WHOLE batch run (seconds; 0 = off). Trips the same stop path as ESC.
+        private readonly TimeoutWatch _timeout = new TimeoutWatch();
+        private double _timeoutSecs = 0;
+
         // pending solve inputs / result
         private nest_lib.OpenNestBatchEngine _engine;
         private nest_lib.batch.BatchNestPlan _plan;
@@ -232,6 +236,7 @@ namespace opennest_2
 
                 _plan = null; _placements = null; _hasResult = false;
                 _cancelled = false; _progress = "starting…";
+                _timeoutSecs = OptNum("timeout", 0);   // 0 = no limit; caps the whole run
                 _phase = Phase.Computing;
                 this.Message = "starting…  (ESC = stop)";
 
@@ -376,13 +381,15 @@ namespace opennest_2
                 var sheetsDup = sheets.duplicate();
                 _engine = new nest_lib.OpenNestBatchEngine(_masterGeo, sheetsDup, parameters, iterations, allRot, exactNfp, useHoles);
                 _cancelled = false; _progress = "";
+                _timeoutSecs = OptNum("timeout", 0);
                 _phase = Phase.Computing;
+                _timeout.Start(_timeoutSecs, TimeoutCancel);
                 RunOrchestrationCore(batchSize, maxRounds, distributor);
                 _phase = Phase.Ready;
                 AssembleOutputs(DA);
             }
             catch (Exception ex) { RhinoApp.WriteLine(ex.ToString()); AddRuntimeMessage(GH_RuntimeMessageLevel.Error, ex.Message); }
-            finally { if (gated) EngineGate.Nfp.Release(); _phase = Phase.Idle; }
+            finally { _timeout.Stop(); if (gated) EngineGate.Nfp.Release(); _phase = Phase.Idle; }
         }
 
         private void AssembleOutputs(IGH_DataAccess DA)
@@ -520,8 +527,15 @@ namespace opennest_2
             if (_phase == Phase.Computing) _timer.Start();
         }
 
-        private void StartClock() { RhinoApp.EscapeKeyPressed += OnEscape; _timer.Start(); }
-        private void StopClock() { try { RhinoApp.EscapeKeyPressed -= OnEscape; } catch { } try { _timer.Stop(); } catch { } }
+        private void StartClock() { RhinoApp.EscapeKeyPressed += OnEscape; _timer.Start(); _timeout.Start(_timeoutSecs, TimeoutCancel); }
+        private void StopClock() { try { RhinoApp.EscapeKeyPressed -= OnEscape; } catch { } try { _timer.Stop(); } catch { } _timeout.Stop(); }
+
+        // Wall-clock timeout fired: stop the whole batch run, keep the sheets committed so far (same as ESC).
+        private void TimeoutCancel()
+        {
+            if (_phase == Phase.Computing) { _runActive = false; _cancelled = true; _engine?.Cancel(); this.Message = "timeout — keeping result so far"; }
+        }
+
         private void OnEscape(object sender, EventArgs e)
         {
             if (_phase == Phase.Computing) { _runActive = false; _cancelled = true; _engine?.Cancel(); this.Message = "stopping…"; }

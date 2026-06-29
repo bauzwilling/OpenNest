@@ -55,6 +55,10 @@ namespace opennest_2
         private volatile bool _restartRequested = false;     // a change arrived mid-solve -> restart once it unwinds
         private volatile bool _runActive = false;            // latched live session on/off
         private bool _prevRunInput = false;                  // previous value of the Run input port (edge detect)
+
+        // Optional wall-clock timeout (seconds; 0 = off). Trips the same stop path as ESC.
+        private readonly TimeoutWatch _timeout = new TimeoutWatch();
+        private double _timeoutSecs = 0;
         private string _solvedSig = null, _pendingSig = null;
         private int _solvedIter = -1, _pendingIter = -1;
         private const int DEBOUNCE_EDIT_MS = 250, DEBOUNCE_ITER_MS = 350;
@@ -368,6 +372,8 @@ namespace opennest_2
                     else if (t.StartsWith("fit", StringComparison.OrdinalIgnoreCase) && int.TryParse(tk[tk.Length - 1], out int fm)) fitMode = fm;
                 }
 
+                _timeoutSecs = OptNum("timeout", 0);   // 0 = no limit
+
                 int max_iterations = 1;
                 DA.GetData(3, ref max_iterations);   // Iterations shifted to index 3 (Options inserted at 2)
 
@@ -387,6 +393,7 @@ namespace opennest_2
                     // Run the native solve INLINE (blocking) and fall through to PASS 2 to publish this pass.
                     _phase = Phase.Computing;
                     this.Message = "solving (embedded)…";
+                    _timeout.Start(_timeoutSecs, TimeoutCancel);
                     try { _pending.Solve(); }
                     catch (Exception ex) { Rhino.RhinoApp.WriteLine(ex.ToString()); }
                     finally { if (gotEngine) ReleaseEngine(); }
@@ -618,17 +625,25 @@ namespace opennest_2
         {
             Rhino.RhinoApp.EscapeKeyPressed += OnEscape;   // ESC fires now that the UI thread is free
             _timer.Start();
+            _timeout.Start(_timeoutSecs, TimeoutCancel);
         }
 
         private void StopClocks()
         {
             try { Rhino.RhinoApp.EscapeKeyPressed -= OnEscape; } catch { }
             try { _timer.Stop(); } catch { }
+            _timeout.Stop();
         }
 
         private void OnEscape(object sender, EventArgs e)
         {
             if (_phase == Phase.Computing) { _runActive = false; NestPhysicsWrapper.np_cancel(); _cancelled = true; this.Message = "stopping…"; }
+        }
+
+        // Wall-clock timeout fired: stop the solve and keep the best layout so far (same as ESC, on a timer).
+        private void TimeoutCancel()
+        {
+            if (_phase == Phase.Computing) { _runActive = false; NestPhysicsWrapper.np_cancel(); _cancelled = true; this.Message = "timeout — keeping best so far"; }
         }
 
         private void CancelSolve()
