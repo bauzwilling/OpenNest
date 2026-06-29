@@ -260,6 +260,11 @@ namespace opennest_2
             DA.GetData(9, ref this.run);
             var parameters = process_inputs(DA);   // reads ports 2..7
 
+            // Embedded / headless host (cluster, ScriptEditor "Create Project", Player, Compute): the async
+            // background solve + deferred ExpireSolution is never honored there, so the launch tail runs the
+            // sweep INLINE and publishes in the same pass (see below).
+            bool embedded = GhRunContext.IsEmbedded(this);
+
             // ===== RESET (any phase): clear the whole component INSTANTLY =====
             if (reset)
             {
@@ -347,13 +352,14 @@ namespace opennest_2
             }
 
             // Launch a fresh background solve. Serialize against OpenNest2 (shared nfp_nest.dll); if busy, queue.
-            if (!EngineGate.Nfp.TryAcquire(_wake))
+            bool gotEngine = EngineGate.Nfp.TryAcquire(_wake);
+            if (!gotEngine && !embedded)
             {
                 this.Message = "waiting for engine…";
                 EmitCachedOutputs(DA);
                 return;
             }
-            _haveEngine = true;
+            _haveEngine = gotEngine;   // embedded proceeds best-effort (synchronous, can't race another solve)
 
             _snapSheets = sheets;
             _snapTemplate = template;
@@ -372,6 +378,26 @@ namespace opennest_2
 
             int myGen = ++_solveGen;
             _phase = Phase.Computing;
+
+            if (embedded)
+            {
+                // Run the multi-start sweep INLINE (blocking) and publish in this same pass.
+                this.Message = "solving (embedded)…";
+                RunSweepCore(myGen);
+                _phase = Phase.Idle;
+                nest = _bestNest; nest_geo = _bestGeo;
+                ResetDisplayLists();
+                if (nest != null && nest_geo != null)
+                {
+                    nest_geos.Add(nest_geo);
+                    try { AssembleOutputs(DA); _hasResult = true; }
+                    catch (Exception ex) { Rhino.RhinoApp.WriteLine(ex.ToString()); _hasResult = false; }
+                    this.Message = (_snapTries > 1 ? ("best of " + _snapTries + "   ") : "") + "fit " + _bestFitness.ToString("F3");
+                }
+                else { _hasResult = false; this.Message = "no result"; }
+                return;
+            }
+
             this.Message = (_snapTries > 1 ? ("solving… " + _snapTries + " tries") : "solving…");
             _task = new System.Threading.Tasks.Task(() => RunSolve(myGen));   // started in AfterSolveInstance
         }
@@ -389,7 +415,9 @@ namespace opennest_2
         // BACKGROUND THREAD: multi-start sweep — run _snapTries seeds, keep the tightest. Publishes only if its
         // generation token is still current (so a Reset / newer launch makes it drop silently). When done, flip
         // to Ready and re-expire on the UI thread (never call ExpireSolution off-thread).
-        private void RunSolve(int myGen)
+        // The multi-start sweep itself (no phase/publish side effects) — shared by the async RunSolve and the
+        // synchronous embedded path. Sets _bestNest/_bestGeo/_bestFitness and frees the engine.
+        private void RunSweepCore(int myGen)
         {
             try
             {
@@ -422,7 +450,12 @@ namespace opennest_2
             }
             catch (Exception ex) { Rhino.RhinoApp.WriteLine(ex.ToString()); }
             finally { ReleaseEngineIfHeld(); }   // free the engine + wake the next queued component (even if dropped)
+        }
 
+        // BACKGROUND THREAD: run the sweep, then flip to Ready and re-expire on the UI thread (interactive path).
+        private void RunSolve(int myGen)
+        {
+            RunSweepCore(myGen);
             if (myGen != _solveGen) return;       // superseded -> never publish
             _readyGen = myGen;
             _phase = Phase.Ready;

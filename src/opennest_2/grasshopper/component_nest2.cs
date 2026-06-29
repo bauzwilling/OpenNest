@@ -296,6 +296,18 @@ namespace opennest_2
             }
             _prevRunInput = runInput;
 
+            // Embedded / headless host (cluster, ScriptEditor "Create Project", Player, Compute): the async
+            // background solve + deferred ExpireSolution is never honored there, so force a synchronous
+            // one-shot — (re)launch on every solve while Run is TRUE, then publish in the SAME pass (the launch
+            // tail runs the solve INLINE and falls through to PASS 2 instead of starting a background task).
+            bool embedded = GhRunContext.IsEmbedded(this);
+            if (embedded)
+            {
+                if (!runInput) { this.Message = "Run = false"; EmitCachedOutputs(DA); return; }
+                _runActive = true; _runButtonRequested = true;
+                _phase = Phase.Idle;
+            }
+
             // ===== phases before the result is ready: gate on Run, launch the solve, or ignore re-solves
             if (_phase != Phase.Ready)
             {
@@ -335,13 +347,16 @@ namespace opennest_2
                 // so only one solve runs at a time across the whole document. If ANOTHER OpenNest holds it,
                 // QUEUE: keep this launch pending, hold the current result, and retry shortly. That lets several
                 // nesting components in one file all solve, one after another, with no manual retry.
-                if (!TryAcquireEngine())
+                bool gotEngine = TryAcquireEngine();
+                if (!gotEngine && !embedded)
                 {
                     this.Message = "queued — waiting for engine…";
                     EmitCachedOutputs(DA);   // hold the last result while queued; woken when the engine frees
                     ArmDebounce();           // backup poll in case a wake is ever missed
                     return;
                 }
+                // Embedded runs synchronously on a single thread, so it can't truly race another solve —
+                // proceed best-effort even if the gate was briefly held.
 
                 // We hold the engine lock. Record the input signature so a later change is detected as new.
                 InputsChanged(DA);
@@ -417,10 +432,25 @@ namespace opennest_2
                 _pendingNestGeo = nest_geo_dup;
                 _totalGenerations = max_iterations;
                 _cancelled = false;
-                _phase = Phase.Computing;
-                this.Message = "starting…  (ESC = stop)";
-                _task = new System.Threading.Tasks.Task(() => RunSolve());
-                return;   // the task is started in AfterSolveInstance, once this iteration has unwound
+
+                if (embedded)
+                {
+                    // Run the solve INLINE (blocking) and fall through to PASS 2 to publish in this same pass.
+                    _phase = Phase.Computing;
+                    this.Message = "solving (embedded)…";
+                    try { _pendingNest.static_solver(ref _pendingNestGeo); }
+                    catch (Exception ex) { Rhino.RhinoApp.WriteLine(ex.ToString()); }
+                    finally { if (gotEngine) ReleaseEngine(); }
+                    _phase = Phase.Ready;
+                    // no return -> PASS 2 below assembles + sets the outputs synchronously
+                }
+                else
+                {
+                    _phase = Phase.Computing;
+                    this.Message = "starting…  (ESC = stop)";
+                    _task = new System.Threading.Tasks.Task(() => RunSolve());
+                    return;   // the task is started in AfterSolveInstance, once this iteration has unwound
+                }
             }
 
             // ===== PASS 2: background solve finished -> assemble outputs, publish, stop the clock =====

@@ -276,6 +276,18 @@ namespace opennest_2
             }
             _prevRunInput = runInput;
 
+            // Embedded / headless host (cluster, ScriptEditor "Create Project", Player, Compute): the async
+            // background solve + deferred ExpireSolution is never honored there, so force a synchronous
+            // one-shot — (re)launch on every solve while Run is TRUE, then publish in the SAME pass (the launch
+            // tail runs the solve INLINE and falls through to PASS 2 instead of starting a background task).
+            bool embedded = GhRunContext.IsEmbedded(this);
+            if (embedded)
+            {
+                if (!runInput) { this.Message = "Run = false"; EmitCachedOutputs(DA); return; }
+                _runActive = true; _runButtonRequested = true;
+                _phase = Phase.Idle;
+            }
+
             // ===== phases before the result is ready: gate on Run, launch the solve, or ignore re-solves
             if (_phase != Phase.Ready)
             {
@@ -302,13 +314,16 @@ namespace opennest_2
                 }
 
                 // Launch: acquire the engine, or queue behind whoever holds it (woken when it frees).
-                if (!TryAcquireEngine())
+                bool gotEngine = TryAcquireEngine();
+                if (!gotEngine && !embedded)
                 {
                     this.Message = "queued — waiting for engine…";
                     EmitCachedOutputs(DA);
                     ArmDebounce();   // backup poll in case a wake is missed
                     return;
                 }
+                // Embedded runs synchronously on a single thread, so it can't truly race another solve —
+                // proceed best-effort even if the gate was briefly held.
                 InputsChanged(DA); _solvedSig = _pendingSig; _solvedIter = _pendingIter;
 
                 // read inputs on the UI thread, flatten, and launch the background solve.
@@ -367,11 +382,25 @@ namespace opennest_2
                 _cancelled = false;
                 _previewSheets = pending.SheetOutlines();
                 this.bbox = pending.SheetsBBox();
-                _phase = Phase.Computing;
-                this.Message = "starting…  (ESC = stop)";
-                _cts = new System.Threading.CancellationTokenSource();
-                _task = new System.Threading.Tasks.Task(() => RunSolve());
-                return;   // the task is started in AfterSolveInstance, once this iteration has unwound
+                if (embedded)
+                {
+                    // Run the native solve INLINE (blocking) and fall through to PASS 2 to publish this pass.
+                    _phase = Phase.Computing;
+                    this.Message = "solving (embedded)…";
+                    try { _pending.Solve(); }
+                    catch (Exception ex) { Rhino.RhinoApp.WriteLine(ex.ToString()); }
+                    finally { if (gotEngine) ReleaseEngine(); }
+                    _phase = Phase.Ready;
+                    // no return -> PASS 2 below assembles + sets the outputs synchronously
+                }
+                else
+                {
+                    _phase = Phase.Computing;
+                    this.Message = "starting…  (ESC = stop)";
+                    _cts = new System.Threading.CancellationTokenSource();
+                    _task = new System.Threading.Tasks.Task(() => RunSolve());
+                    return;   // the task is started in AfterSolveInstance, once this iteration has unwound
+                }
             }
 
             // Live: a change arrived while solving. The cancelled solve has unwound + freed the engine; don't
