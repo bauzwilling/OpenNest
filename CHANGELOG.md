@@ -8,6 +8,9 @@ GitHub Releases. Each entry describes what the release actually changed.
 > the previous tag), so a clear commit subject per push becomes the changelog line — refine an entry
 > here anytime if you want more detail.
 
+## [2.89.1.0] - 2026-07-07
+- batch: output one transform per part (placed AND unplaced), matching the OpenNest2 GA component — unplaced parts get Identity (kept at input location) + Sheet Id -1 instead of being dropped
+
 ## [2.89.0.0] - 2026-06-19
 - bench(nfp): add --packDemo mode exercising nfp_pack + nfp_offset_polygon
 

@@ -189,11 +189,16 @@ namespace nest_lib
 
         private Point3d LocalOrigin(int s) => (s >= 0 && s < _localOrigin.Length) ? _localOrigin[s] : Point3d.Origin;
 
-        // Re-slot every committed placement onto the consolidated output grid: normalize by the part's local
-        // sheet origin (baked into its solve transform), then shift to its global sheet's grid origin.
+        // Build one placement PER instance, so every input part gets a transform + Sheet Id in the output
+        // (mirrors the plain OpenNest2 GA solver, which emits output_transforms for placed AND unplaced parts
+        // in a single pass). Placed instances are re-slotted onto the consolidated output grid: normalize by
+        // the part's local sheet origin (baked into its solve transform), then shift to its global sheet's
+        // grid origin. Unplaced instances get Identity (leaves the part at its ORIGINAL input location — the
+        // master geo the component transforms is in input-world coords) and GlobalSheet -1, the same
+        // convention rhino_example uses for its unplaced parts.
         public List<FinalPlacement> BuildFinalPlacements(BatchNestPlan plan)
         {
-            var result = new List<FinalPlacement>(plan.Placements.Count);
+            var result = new List<FinalPlacement>(plan.Placements.Count + plan.Unplaced.Count);
             foreach (var pl in plan.Placements)
             {
                 if (!(pl.Solve?.EngineData is Dictionary<int, Transform> xf) || !xf.TryGetValue(pl.InstanceId, out var world))
@@ -205,6 +210,15 @@ namespace nest_lib
                     MasterGroup = _instanceMaster.TryGetValue(pl.InstanceId, out var g) ? g : 0,
                     GlobalSheet = pl.GlobalSheet,
                     Xform = final,
+                });
+            }
+            foreach (int inst in plan.Unplaced)
+            {
+                result.Add(new FinalPlacement
+                {
+                    MasterGroup = _instanceMaster.TryGetValue(inst, out var g) ? g : 0,
+                    GlobalSheet = -1,
+                    Xform = Transform.Identity,
                 });
             }
             return result;

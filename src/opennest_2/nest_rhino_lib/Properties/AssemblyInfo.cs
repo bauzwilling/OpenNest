@@ -34,5 +34,5 @@ using System.Runtime.InteropServices;
 // [assembly: AssemblyVersion("1.0.*")]
 // DataB_OpenNest version = parent OpenNest version (this file is compiled into DataB.OpenNest.gha; it is
 // the assembly's actual version that DataB_Toolkit's runtime check reads). Keep in sync with the Yak manifest.
-[assembly: AssemblyVersion("2.89.0.0")]
-[assembly: AssemblyFileVersion("2.89.0.0")]
+[assembly: AssemblyVersion("2.89.1.0")]
+[assembly: AssemblyFileVersion("2.89.1.0")]

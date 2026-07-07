@@ -410,7 +410,9 @@ namespace opennest_2
             }
             DA.SetDataList(0, output_sheets);
 
-            // Group placements by master part group; copies become the k sub-index.
+            // Group placements by master part group; copies become the k sub-index. placements now covers
+            // EVERY instance (placed + unplaced), so each input part gets a transform + Sheet Id -1 if it
+            // didn't fit — matching the plain OpenNest2 (GA) component.
             var byGroup = new Dictionary<int, List<nest_lib.OpenNestBatchEngine.FinalPlacement>>();
             foreach (var p in placements)
             {
@@ -426,7 +428,7 @@ namespace opennest_2
 
             for (int i = 0; i < geo.geometry_sorted.Count; i++)
             {
-                if (!byGroup.TryGetValue(i, out var copies)) continue;   // group not placed (shouldn't happen unless unplaced)
+                if (!byGroup.TryGetValue(i, out var copies)) continue;   // no instances for this group (shouldn't happen)
                 for (int k = 0; k < copies.Count; k++)
                 {
                     var xf = copies[k].Xform;
@@ -482,12 +484,12 @@ namespace opennest_2
             DA.SetDataTree(5, sheetTxt);
 
             // status + errors
-            int placedCount = placements.Count;
             int unplaced = plan != null ? plan.Unplaced.Count : 0;
             this.Message = (_cancelled ? "stopped — " : "") + $"{totalSheets} sheet(s)" + (unplaced > 0 ? $", {unplaced} unnested" : "");
             if (unplaced > 0)
-                AddRuntimeMessage(GH_RuntimeMessageLevel.Error,
-                    $"{unplaced} part(s) were not nested" + (_cancelled ? " (stopped early — raise Timeout or Iterations, or press Run again)." : " — they don't fit any sheet."));
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Warning,
+                    $"{unplaced} part(s) were not nested (output at their input location, Sheet Id = -1)"
+                    + (_cancelled ? " — stopped early; raise Timeout or Iterations, or press Run again." : " — they don't fit any sheet."));
 
             _o_sheets = output_sheets; _o_borders = borders; _o_allgeo = allGeo; _o_xforms = xforms;
             _o_sheetid = sheetId; _o_sheettxt = sheetTxt; _o_attr = attrs; _hasResult = true;
