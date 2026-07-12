@@ -79,3 +79,6 @@ src/opennest_cpp/out/*
 
 out.svg
 **/out.svg
+
+# nest_eval harness output (regenerated on every `dotnet test tests/nest_eval`)
+eval-results/
