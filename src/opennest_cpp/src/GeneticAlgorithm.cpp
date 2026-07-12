@@ -80,6 +80,30 @@ PopulationItem GeneticAlgorithm::mutate(const PopulationItem& p) {
             clone.Rotation[i] = static_cast<float>(std::floor(r.NextDouble() * effRot)) * (360.0f / effRot);
         }
     }
+
+    // Insertion (or-opt) move: occasionally relocate a part to a DISTANT position in one step. The
+    // adjacent-swap above can only shift a part by one slot per mutation, so moving a mis-placed part
+    // from position 20 to 3 needs ~17 lucky consecutive swaps (the convergence bottleneck). One
+    // insertion does it in a single move, letting the GA escape order-basins far faster. Rotation
+    // travels WITH the part (like crossover's part-wise splice), unlike the positional swap above.
+    // Half the swap rate — insertion is a much larger, more disruptive move, so it's applied sparingly.
+    double insRate = 0.5 * rate;
+    size_t n = clone.placements.size();
+    for (size_t i = 0; i < n; i++) {
+        if (r.NextDouble() < insRate) {
+            size_t j = static_cast<size_t>(r.NextDouble() * n);
+            if (j >= n) j = n - 1;
+            if (j != i) {
+                auto part = clone.placements[i];
+                float rot = clone.Rotation[i];
+                clone.placements.erase(clone.placements.begin() + i);
+                clone.Rotation.erase(clone.Rotation.begin() + i);
+                size_t dst = j > i ? j - 1 : j;   // compensate for the erase shifting later indices left
+                clone.placements.insert(clone.placements.begin() + dst, part);
+                clone.Rotation.insert(clone.Rotation.begin() + dst, rot);
+            }
+        }
+    }
     return clone;
 }
 
