@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Automated test + eval harness for the two OpenNest engines, driven Rhino-free through the
+       same P/Invoke wrappers the standalone console uses (nfp_nest.dll / nest_physics.dll). Each
+       test runs one engine on one deterministic dataset, gates CORRECTNESS (no overlap, in-bounds,
+       all parts placed) with xunit asserts, and records QUALITY metrics (utilization, sheets, wall
+       time) to eval-results/ so the agent can see whether a change improved packing even when the
+       correctness gates pass. Run:  dotnet test tests/nest_eval  -->
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>NestEval</RootNamespace>
+    <!-- The solver DLLs are native x64; force an x64 test host so the bare-name P/Invoke binds. -->
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <!-- Reuse the single source of truth for the C ABI + geometry helpers (no duplication / drift). -->
+  <ItemGroup>
+    <Compile Include="..\..\src\opennest_2\nest_lib\NfpNestWrapper\NfpNestWrapper.cs" Link="Wrappers\NfpNestWrapper.cs" />
+    <Compile Include="..\..\src\opennest_2\nest_lib\NestPhysicsWrapper\NestPhysicsWrapper.cs" Link="Wrappers\NestPhysicsWrapper.cs" />
+    <Compile Include="..\..\src\opennest_2\nest_lib\Clipper\clipper.cs" Link="Clipper\clipper.cs" />
+  </ItemGroup>
+
+  <!-- Copy whichever native solver DLLs exist next to the test assembly so the bare-name P/Invoke
+       resolves at test time (same mechanism as opennest_console). ORDER MATTERS: the Copy below
+       runs the items in sequence into one folder, so the LAST existing source for a given filename
+       wins. Fallbacks (shipped prebuilt / stale bin copies) come first; the canonical build-tree
+       outputs come last so a freshly rebuilt engine DLL always overwrites an older copy. -->
+  <Target Name="CopyNativeDlls" AfterTargets="Build">
+    <ItemGroup>
+      <!-- fallbacks first -->
+      <NativeDll Include="..\..\src\opennest_2\nfp_nest.dll" />
+      <NativeDll Include="..\..\src\opennest_2\bin\Release\net7.0\nfp_nest.dll" />
+      <NativeDll Include="..\..\src\opennest_2\nest_physics.dll" />
+      <!-- canonical fresh-build outputs last (win over the fallbacks above) -->
+      <NativeDll Include="..\..\src\nest_physics_cpp\build\Release\nest_physics.dll" />
+      <NativeDll Include="..\..\src\opennest_cpp\build\Release\nfp_nest.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NativeDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"
+          Condition="Exists('%(NativeDll.Identity)')" />
+  </Target>
+
+</Project>
