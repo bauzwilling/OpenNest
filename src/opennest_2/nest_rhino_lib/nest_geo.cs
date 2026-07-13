@@ -908,6 +908,24 @@ namespace nest_rhino_lib
             return areas;
         }
 
+        /// <summary>Axis-aligned bounding-box size (width, height) of each part group's outer nesting
+        /// polyline (index-aligned with geometry_sorted / boundary_sorted). Used by shape-aware batch
+        /// distribution to derive aspect ratio and compactness.</summary>
+        public List<Tuple<double, double>> GroupBounds()
+        {
+            var bounds = new List<Tuple<double, double>>(this.boundary_sorted.Count);
+            foreach (var grp in this.boundary_sorted)
+            {
+                if (grp != null && grp.Count > 0)
+                {
+                    BoundingBox bb = grp[0].Item3;
+                    bounds.Add(Tuple.Create(bb.Max.X - bb.Min.X, bb.Max.Y - bb.Min.Y));
+                }
+                else bounds.Add(Tuple.Create(0.0, 0.0));
+            }
+            return bounds;
+        }
+
         /// <summary>Copy count of each part group (index-aligned with geometry_sorted).</summary>
         public List<int> GroupCopies()
         {

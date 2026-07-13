@@ -84,15 +84,20 @@ namespace nest_lib
 
         public int InstanceCount => _instanceMaster.Count;
 
-        // All instances as area-tagged descriptors for the distributor (each instance inherits its group's area).
+        // All instances as descriptors for the distributor (each instance inherits its group's area and
+        // outer-loop bounding-box size, so shape-aware distributors can derive aspect ratio / compactness).
         public List<PartDescriptor> BuildDescriptors()
         {
             var areas = _master.GroupAreas();
+            var bounds = _master.GroupBounds();
             var list = new List<PartDescriptor>(_instanceMaster.Count);
             foreach (var kv in _instanceMaster.OrderBy(k => k.Key))
             {
                 int g = kv.Value;
-                list.Add(new PartDescriptor(kv.Key, g < areas.Count ? areas[g] : 0.0));
+                double area = g < areas.Count ? areas[g] : 0.0;
+                double w = g < bounds.Count ? bounds[g].Item1 : 0.0;
+                double h = g < bounds.Count ? bounds[g].Item2 : 0.0;
+                list.Add(new PartDescriptor(kv.Key, area, w, h));
             }
             return list;
         }

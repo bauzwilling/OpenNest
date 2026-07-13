@@ -13,6 +13,15 @@ GitHub Releases. Each entry describes what the release actually changed.
 - docs: add the "Building Yak packages" page to the site nav
 - package: drop the obsolete minkowski.dll from the Windows package (the interop lives in nfp_nest.dll)
 
+## [2.89.2.0] - 2026-07-13
+- batch: rework leftover consolidation — keep each round's own sheets, and escalate a stalled round (full-size sequential chunks → one merged batch → unplaced) instead of giving up
+- batch: number output sheets fullest-first so the partial/offcut sheet is always last
+- batch: rename the default distribution to "Area Balanced" (LPT largest-first total-area balancing)
+- batch: make per-batch feed-order spreading optional (Spread In Batch); add a batch-distribution preview component
+- batch: remove the Round-Robin, Area Snake Round-Robin and Multi-Feature Stratified distributors
+- tests: add xUnit coverage for the Area Balanced distributor and the within-batch spread ordering
+- docs: add batch nesting limitations and batch-size guidance
+
 ## [2.89.1.0] - 2026-07-07
 - batch: output one transform per part (placed AND unplaced), matching the OpenNest2 GA component — unplaced parts get Identity (kept at input location) + Sheet Id -1 instead of being dropped
 

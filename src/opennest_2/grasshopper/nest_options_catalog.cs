@@ -50,7 +50,8 @@ namespace opennest_2
             var list = new List<NestOption>
             {
                 NestOption.Number("batch_size", "Batch Size", 50, 1, 100000, 0, "Parts nested per batch (the NFP engine is fast and accurate up to ~50). 1000 parts / 50 = 20 batches."),
-                NestOption.Choice("distribution", "Distribution", labels, tokens, 0, "How the parts are split into batches. Area-Normal keeps each batch's area distribution the same as the whole set."),
+                NestOption.Choice("distribution", "Distribution", labels, tokens, 0, "How the parts are split into batches. Area Balanced gives every batch a nearly equal total part area."),
+                NestOption.Choice("spread_within_batch", "Spread In Batch", new[] { "Off", "On" }, new[] { "0", "1" }, 1, "Reorder each batch's feed order (large/small alternating) for a tighter nest. Applies to area-aware distributions; Sequential keeps its own order."),
                 NestOption.Number("max_rounds", "Max Rounds", 12, 1, 100, 0, "Safety cap on leftover-consolidation rounds (last sheets re-nested together until the leftover fits one batch)."),
             };
             list.AddRange(OpenNest2());
