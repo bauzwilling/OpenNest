@@ -8,6 +8,11 @@ GitHub Releases. Each entry describes what the release actually changed.
 > the previous tag), so a clear commit subject per push becomes the changelog line — refine an entry
 > here anytime if you want more detail.
 
+## [2.89.2.0] - 2026-07-13
+- nfp/GA: unplaced parts no longer wreck the whole nest — track total unplaced AREA as a separate lexicographic objective (fewest unplaced first, then tightest packing) instead of folding a ~1e8 penalty into the single fitness scalar, which used to blind the GA to packing quality the moment any part didn't fit; more iterations now keep improving the layout. Faithful/parity mode is byte-identical (still +2 per unplaced folded into fitness)
+- docs: add the "Building Yak packages" page to the site nav
+- package: drop the obsolete minkowski.dll from the Windows package (the interop lives in nfp_nest.dll)
+
 ## [2.89.1.0] - 2026-07-07
 - batch: output one transform per part (placed AND unplaced), matching the OpenNest2 GA component — unplaced parts get Identity (kept at input location) + Sheet Id -1 instead of being dropped
 

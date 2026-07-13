@@ -928,7 +928,7 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
     if (sheets.empty()) return nullResult;
 
     int i, j, k, m, n;
-    double totalsheetarea = 0;
+    [[maybe_unused]] double totalsheetarea = 0;  // retained for parity/diagnostics; no longer feeds fitness
 
     // rotate parts by given rotation
     std::vector<std::shared_ptr<NFP>> rotated;
@@ -1526,14 +1526,24 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
         if (sheets.empty()) break;
     }
 
-    // Parts that couldn't be placed — penalty. Canonical C#: +2 per unplaced part.
+    // Parts that couldn't be placed.
+    //  - faithful/parity mode: fold a fixed +2 per unplaced part straight into the single fitness
+    //    scalar (canonical C# GeneticAlgorithm.cs behavior — unchanged for parity).
+    //  - default mode: do NOT bury an unplaced penalty inside fitness. Its former ~1e8 magnitude
+    //    swamped the packing-quality terms, so once any part was unplaceable the GA went blind to
+    //    tightness and extra iterations stopped helping. Instead report the total unplaced AREA as a
+    //    separate lexicographic primary objective (see placementLess): minimize unplaced area first,
+    //    then optimize packing tightness within that tier.
+    double unplacedArea = 0;
     for (i = 0; i < static_cast<int>(parts.size()); i++) {
-        fitness += config.faithful ? 2.0 : (100000000.0 * (std::fabs(GeometryUtil::polygonArea(*parts[i])) / totalsheetarea));
+        if (config.faithful) fitness += 2.0;
+        else unplacedArea += std::fabs(GeometryUtil::polygonArea(*parts[i]));
     }
 
     SheetPlacement result;
     result.placements = {allplacements};
     result.fitness = fitness;
+    result.unplacedArea = config.faithful ? std::nullopt : std::optional<double>(unplacedArea);
 
     return result;
 }

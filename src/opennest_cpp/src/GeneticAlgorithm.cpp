@@ -107,9 +107,9 @@ std::vector<PopulationItem> GeneticAlgorithm::mate(const PopulationItem& male, c
 // (PopulationItem is a reference type there); RNG call order is one NextDouble per selection.
 void GeneticAlgorithm::generation() {
     std::sort(population.begin(), population.end(), [](const PopulationItem& a, const PopulationItem& b) {
-        double fa = a.fitness.has_value() ? a.fitness.value() : std::numeric_limits<double>::max();
-        double fb = b.fitness.has_value() ? b.fitness.value() : std::numeric_limits<double>::max();
-        return fa < fb;
+        // Lexicographic: fewer unplaced (by area) first, then tighter packing. In faithful mode both
+        // unplacedArea are empty so this degrades to the canonical fitness-only ordering.
+        return placementLess(a.fitness, a.unplacedArea, b.fitness, b.unplacedArea);
     });
 
     auto pickIndex = [&](int excludeIdx) -> int {

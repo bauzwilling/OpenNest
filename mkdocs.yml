@@ -109,6 +109,7 @@ nav:
           - "07 Pack distance": api/python/07_pack_distance.md
           - "08 Text": api/python/08_text.md
   - Build & Publish: developing.md
+  - Building Yak packages: building_yak_packages.md
   - Credits: references.md
 
 markdown_extensions:

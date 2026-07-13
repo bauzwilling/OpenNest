@@ -201,8 +201,10 @@ void NestingEngine::ResponseProcessor(SheetPlacement payload) {
 
     ga->population[payload.index].processing = false;
     ga->population[payload.index].fitness = payload.fitness;
+    ga->population[payload.index].unplacedArea = payload.unplacedArea;
 
-    if (nests.empty() || (nests[0].fitness.has_value() && payload.fitness.has_value() && nests[0].fitness.value() > payload.fitness.value())) {
+    // Keep nests[0] as the best-so-far under the lexicographic order (unplaced area, then fitness).
+    if (nests.empty() || placementLess(payload.fitness, payload.unplacedArea, nests[0].fitness, nests[0].unplacedArea)) {
         nests.insert(nests.begin(), payload);
         if (static_cast<int>(nests.size()) > config.populationSize) {
             nests.pop_back();

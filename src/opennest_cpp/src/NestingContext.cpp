@@ -158,7 +158,7 @@ void NestingContext::NestIterate(int max_iterations) {
 
     auto& plcpr = Nest.nests.front();
 
-    if (!hasCurrent || (plcpr.fitness.has_value() && current.fitness.has_value() && plcpr.fitness.value() < current.fitness.value())) {
+    if (!hasCurrent || placementLess(plcpr.fitness, plcpr.unplacedArea, current.fitness, current.unplacedArea)) {
         AssignPlacement(plcpr);
     }
 
@@ -172,7 +172,7 @@ void NestingContext::NestIterateGeneration() {
     if (Nest.nests.empty()) return;
 
     auto& plcpr = Nest.nests.front();
-    if (!hasCurrent || (plcpr.fitness.has_value() && current.fitness.has_value() && plcpr.fitness.value() < current.fitness.value())) {
+    if (!hasCurrent || placementLess(plcpr.fitness, plcpr.unplacedArea, current.fitness, current.unplacedArea)) {
         AssignPlacement(plcpr);
     }
 
@@ -352,8 +352,8 @@ NestingContext NestingContext::RunParallelSeeds(
     for (int s = 1; s < numSeeds; s++) {
         if (!contexts[s]->HasCurrent()) continue;
         if (!contexts[bestIdx]->HasCurrent() ||
-            contexts[s]->Current().fitness.value_or(1e18) <
-            contexts[bestIdx]->Current().fitness.value_or(1e18)) {
+            placementLess(contexts[s]->Current().fitness, contexts[s]->Current().unplacedArea,
+                          contexts[bestIdx]->Current().fitness, contexts[bestIdx]->Current().unplacedArea)) {
             bestIdx = s;
         }
     }

@@ -7,6 +7,8 @@
 #include <mutex>
 #include <shared_mutex>
 #include <cstdint>
+#include <limits>
+#include <cmath>
 
 #include "Point.h"
 #include "NestConfig.h"
@@ -58,6 +60,9 @@ struct SheetPlacementItem {
 struct PopulationItem {
     bool processing = false;  // C# uses 'object processing = null'; we use bool flag
     std::optional<double> fitness;
+    // Total area of parts that could not be placed. Lexicographic primary objective in default mode
+    // (see placementLess); left empty in faithful/parity mode so ordering falls back to fitness alone.
+    std::optional<double> unplacedArea;
     std::vector<float> Rotation;
     std::vector<std::shared_ptr<NFP>> placements;
 };
@@ -65,9 +70,34 @@ struct PopulationItem {
 // ---------- SheetPlacement ----------
 struct SheetPlacement {
     std::optional<double> fitness;
+    // Total area of parts that could not be placed (default mode only; see PopulationItem::unplacedArea).
+    std::optional<double> unplacedArea;
     std::vector<std::vector<SheetPlacementItem>> placements;
     int index = 0;
 };
+
+// Lexicographic placement-quality ordering used by the GA and best-nest selection:
+//   primary key   = unplaced area  (fewer / smaller unplaced parts rank first)
+//   secondary key = fitness        (tighter packing ranks first)
+// unplacedArea is populated only in default mode. When it is absent on either side the ordering falls
+// back to fitness alone, which keeps faithful/parity mode byte-identical to the canonical C# behavior.
+//
+// Why a separate primary key instead of one blended scalar: the old default fitness folded an ~1e8
+// unplaced penalty into the same number as the packing terms, so once any part was unplaceable the
+// penalty swamped the tightness signal and the GA could no longer improve the layout with more
+// iterations. Splitting the objectives lets it minimize unplaced area first, then optimize tightness
+// within that tier — so a forced-unplaced part (too big for any sheet) no longer degrades the rest.
+inline bool placementLess(const std::optional<double>& fitA, const std::optional<double>& unplacedA,
+                          const std::optional<double>& fitB, const std::optional<double>& unplacedB) {
+    if (unplacedA.has_value() && unplacedB.has_value()) {
+        double ua = unplacedA.value(), ub = unplacedB.value();
+        double tol = 1e-6 * std::max(1.0, std::max(std::fabs(ua), std::fabs(ub)));
+        if (std::fabs(ua - ub) > tol) return ua < ub;
+    }
+    double fa = fitA.has_value() ? fitA.value() : std::numeric_limits<double>::max();
+    double fb = fitB.has_value() ? fitB.value() : std::numeric_limits<double>::max();
+    return fa < fb;
+}
 
 // ---------- NestItem ----------
 struct NestItem {
