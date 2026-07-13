@@ -1,4 +1,6 @@
 *build*
+!scripts/
+!scripts/**
 *.moc.*
 *.moc
 ui_*
