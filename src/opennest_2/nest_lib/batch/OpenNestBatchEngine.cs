@@ -86,10 +86,12 @@ namespace nest_lib
 
         // All instances as descriptors for the distributor (each instance inherits its group's area and
         // outer-loop bounding-box size, so shape-aware distributors can derive aspect ratio / compactness).
+        // The size is the PRE-ORIENTED box (part_preorient), not the as-drawn one, so a distributor sees the
+        // same dimensions the solver will actually nest — identical for every part that fits as drawn.
         public List<PartDescriptor> BuildDescriptors()
         {
             var areas = _master.GroupAreas();
-            var bounds = _master.GroupBounds();
+            var bounds = nest_rhino_lib.part_preorient.GroupExtents(_master, _sheetsTemplate);
             var list = new List<PartDescriptor>(_instanceMaster.Count);
             foreach (var kv in _instanceMaster.OrderBy(k => k.Key))
             {

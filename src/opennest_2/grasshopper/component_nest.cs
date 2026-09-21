@@ -802,6 +802,7 @@ namespace opennest_2
         private int _partHolesTotal = 0;   // total interior holes sent to the solver (for the diagnostic)
         private int _sheetHolesTotal = 0;  // total sheet keep-out holes sent to the solver (for the diagnostic)
         private int _unplacedTotal = 0;    // parts that didn't fit any sheet -> laid out outside (diagnostic)
+        private int _preOrientedGroups = 0; // groups rotated by the pre-orientation pass so they fit a sheet
 
         public void Flatten(nest_rhino_lib.nest_sheets nest_sheets, nest_rhino_lib.nest_geo nest_geo,
                             List<double> parameters, int max_iterations, int partHolesMode = 1,
@@ -810,14 +811,11 @@ namespace opennest_2
             int nGroups = nest_geo.boundary_sorted.Count;
 
             // per-group orientation onto WorldXY (matches rhino_example.to_xy: the part's first outer
-            // vertex becomes the local frame origin).
-            Transform[] to_xy = new Transform[nGroups];
-            for (int i = 0; i < nGroups; i++)
-            {
-                Polyline g_outer = nest_geo.boundary_sorted[i][0].Item2;
-                Plane plane = new Plane(g_outer[0], Vector3d.XAxis, Vector3d.YAxis);
-                to_xy[i] = Transform.PlaneToPlane(plane, Plane.WorldXY);
-            }
+            // vertex becomes the local frame origin), with the PRE-ORIENTATION pass folded in: a part
+            // whose bbox overflows every sheet as drawn starts from the smallest rotation that fits, so
+            // the relaxer is not handed a part that cannot be placed. Parts that already fit (and parts
+            // no orientation can rescue) get angle 0 = the previous frame, unchanged.
+            Transform[] to_xy = nest_rhino_lib.part_preorient.BuildToXy(nest_geo, nest_sheets, out _preOrientedGroups);
 
             // flatten parts: one solver part per copy, OUTER ring. In FILL-HOLES mode each part's interior
             // holes (boundary_sorted[i][1..], same to_xy frame as the outer) are ALSO sent so other parts
@@ -1151,10 +1149,11 @@ namespace opennest_2
                 double sheetArea = sw * sh;
                 int totalVerts = 0; foreach (var c in _pvc) totalVerts += c;
                 Rhino.RhinoApp.WriteLine(string.Format(
-                    "[nest_physics] parts={0} (avg {1} verts) | sheet0 = {2:F1} x {3:F1} ({4} sheets) | part area = {5:F0} = {6:F1}% of sheet | rot={7} seed={8} iter={9} poles={13} compact={14} starts={15} | fill_holes={11} part_holes_sent={12} sheet_holes_sent={16} | RESULT sheets used = {10} unplaced(outside)={17}",
+                    "[nest_physics] parts={0} (avg {1} verts) | sheet0 = {2:F1} x {3:F1} ({4} sheets) | part area = {5:F0} = {6:F1}% of sheet | rot={7} seed={8} iter={9} poles={13} compact={14} starts={15} | fill_holes={11} part_holes_sent={12} sheet_holes_sent={16} | pre_oriented_groups={18} | RESULT sheets used = {10} unplaced(outside)={17}",
                     F, (F > 0 ? totalVerts / F : 0), sw, sh, nsheet, totalArea,
                     (sheetArea > 0 ? 100.0 * totalArea / sheetArea : 0), _np.num_rotations, _np.seed, _np.iter_budget, _n_sheets_used,
-                    _np.part_holes_mode, _partHolesTotal, _np.pole_max, _np.final_compact, _np.n_starts, _sheetHolesTotal, _unplacedTotal));
+                    _np.part_holes_mode, _partHolesTotal, _np.pole_max, _np.final_compact, _np.n_starts, _sheetHolesTotal, _unplacedTotal,
+                    _preOrientedGroups));
             }
 
             // Overflow layout for parts that did NOT fit on any sheet (sid == -1): instead of dropping them

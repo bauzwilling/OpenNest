@@ -75,6 +75,10 @@ namespace opennest_2
             if (boundaries == null || boundaries.Count == 0) { AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, "Geometry has no parts."); return; }
 
             var areas = geo.GroupAreas();
+            // As-drawn box. OpenNestBatchEngine.BuildDescriptors uses the PRE-ORIENTED box instead
+            // (part_preorient.GroupExtents), but that needs the sheets and this harness has no Sheets input.
+            // The two agree for every part that fits a sheet as drawn, and no current distributor reads
+            // Width/Height at all — add a Sheets input here if one ever does.
             var bounds = geo.GroupBounds();
             var copies = geo.GroupCopies();
             int groupCount = geo.geometry_sorted != null ? geo.geometry_sorted.Count : boundaries.Count;
