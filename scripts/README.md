@@ -33,9 +33,11 @@ Requires CMake 3.20+ and Visual Studio 2022 (MSVC).
 
 1. Builds `DataB.OpenNest.gha` (opennest_2) and `opennest_commands.rhp`.
 2. Stages the `net48/` + `net7.0-windows/` layout.
-3. Downloads `yak.exe` (if missing), runs `yak build`, retags `-any-` → `-rh8_0-`.
+3. Finds a Yak: the `Yak.exe` that ships with an installed Rhino (preferred), else downloads the
+   standalone `yak.exe`. Runs `yak build`, and retags `-any-` → `-rh8_0-` if the tool emitted `-any-`
+   (Rhino's Yak already tags it `-rh8_0-`).
 4. Installs the `.yak` and refreshed framework folders into `grasshopper_plugin/datab_opennest_win/`,
-   then deletes `yak.exe`.
+   then deletes `yak.exe` if it downloaded one.
 
 ```
 pwsh scripts/build_yak.ps1

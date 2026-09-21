@@ -35,12 +35,22 @@ dotnet build src/opennest_commands/opennest_commands.csproj -c Release
 if ($LASTEXITCODE -ne 0) { throw "opennest_commands build failed" }
 
 # --- get yak.exe ---
+# Prefer the Yak.exe that ships with an installed Rhino: the files.mcneel.com/yak/tools/latest/yak.exe
+# build is deprecated and now dies with a NullReferenceException in Content.GetInspector, so it is only
+# the last-resort fallback for a machine with no Rhino.
 $yak = Join-Path $root "yak.exe"
 $downloadedYak = $false
 if (-not (Test-Path $yak)) {
-    Write-Host "==> Downloading yak.exe" -ForegroundColor Cyan
-    curl.exe -sL "https://files.mcneel.com/yak/tools/latest/yak.exe" -o $yak
-    $downloadedYak = $true
+    $rhinoYak = Get-ChildItem "$env:ProgramFiles\Rhino *\System\Yak.exe" -ErrorAction SilentlyContinue |
+                Sort-Object FullName -Descending | Select-Object -First 1
+    if ($rhinoYak) {
+        $yak = $rhinoYak.FullName
+        Write-Host "==> Using $yak" -ForegroundColor Cyan
+    } else {
+        Write-Host "==> No Rhino Yak.exe found; downloading the (deprecated) standalone yak.exe" -ForegroundColor Yellow
+        curl.exe -sL "https://files.mcneel.com/yak/tools/latest/yak.exe" -o $yak
+        $downloadedYak = $true
+    }
 }
 
 try {
@@ -72,13 +82,17 @@ try {
     & $yak build --platform win
     Pop-Location
 
+    # Rhino's Yak.exe already tags the build -rh8_0-; the standalone one emits -any-, which we retag.
     $anyTag  = "datab_opennest-$verShort-any-win.yak"
     $rh8Tag  = "datab_opennest-$verShort-rh8_0-win.yak"
-    if (-not (Test-Path "$STAGE\$anyTag")) { throw "yak build did not produce $anyTag" }
+    if (Test-Path "$STAGE\$anyTag") {
+        Write-Host "==> Retagging -any- to -rh8_0-" -ForegroundColor Cyan
+        Move-Item "$STAGE\$anyTag" "$STAGE\$rh8Tag" -Force
+    }
+    if (-not (Test-Path "$STAGE\$rh8Tag")) { throw "yak build did not produce $rh8Tag (nor $anyTag)" }
 
-    # --- retag -any- -> -rh8_0- and install into the repo ---
-    Write-Host "==> Retagging and installing into $PKG" -ForegroundColor Cyan
-    Move-Item "$STAGE\$anyTag" "$STAGE\$rh8Tag" -Force
+    # --- install into the repo ---
+    Write-Host "==> Installing into $PKG" -ForegroundColor Cyan
     Remove-Item "$PKG\*.yak" -Force -ErrorAction SilentlyContinue
     Copy-Item "$STAGE\$rh8Tag" $PKG
     Remove-Item -Recurse -Force "$PKG\net48","$PKG\net7.0-windows" -ErrorAction SilentlyContinue
