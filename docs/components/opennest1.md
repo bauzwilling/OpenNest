@@ -26,6 +26,8 @@ Nests parts onto sheets with the no-fit-polygon solver (no attributes). Takes cu
 | **Seed** | Integer | item | Random seed for reproducible results. _Default: 1._ |
 | **Reset** | Boolean | item | Set TRUE (wire a Button) to clear the whole component instantly and drop any running solve. _Default: false._ |
 | **Run** | Boolean | item | Start the nesting solve. _Default: false._ |
+| **Timeout** | Number | item | Stop after this many seconds and keep the best layout so far (0 = no limit). _Default: 0._ |
+| **Fit Orient** | Boolean | item | Before nesting, rotate any part whose bounding box does not fit a sheet as drawn into an orientation that does — preferring one of the **Rotations** steps, and only using an off-step angle when no step fits. Parts that already fit are never touched. _Default: true._ |
 
 ## Outputs
 
@@ -39,18 +41,26 @@ Nests parts onto sheets with the no-fit-polygon solver (no attributes). Takes cu
 
 ## Initial orientation
 
-Before the solve starts, every part is checked against the sheet dimensions. A part whose bounding box
-already fits a sheet is left exactly as you drew it. A part whose bounding box is too big for every sheet
-as drawn is **rotated into the orientation with the most room to spare**, and the solve starts from there
-— so a long bar drawn horizontally against a tall sheet is stood upright instead of being reported
-unplaced. If no orientation fits any sheet, the part is left as drawn and handled the way it always was.
+Controlled by the **Fit Orient** input (default **true**).
 
-It picks the roomiest orientation rather than the smallest rotation on purpose: the smallest rotation that
-fits is, by definition, the one where the part only just stops overflowing, so it ends up touching the
+Before the solve starts, every part is checked against the sheet dimensions:
+
+1. **It already fits as drawn** — left exactly as you drew it. Nothing happens. This is the normal case.
+2. **It fits at one of the Rotations steps** (360°/n) — the part is turned onto that step, the roomiest one
+   if several work. The solve still only ever sees orientations your **Rotations** input already allowed.
+3. **No step fits** — only then does the pass use an off-step angle, choosing the orientation with the most
+   room to spare inside the sheet. So a long bar against a tall sheet is stood upright rather than being
+   reported unplaced.
+4. **Nothing fits in any orientation** — the part is left as drawn and handled the way it always was.
+
+Step 3 picks the roomiest orientation rather than the smallest rotation on purpose: the smallest rotation
+that fits is, by definition, the one where the part only just stops overflowing, so it ends up touching the
 sheet limit with no clearance and the nester still cannot place it.
 
-When the pass rotates anything it says so on the Rhino command line
-(`[pre-orient] 1 of 3 part group(s) rotated to fit the sheet: #0=-60.45deg`). If you see no such line, no
-part needed re-orienting.
+When the pass rotates anything it says so on the Rhino command line, e.g.
+`[pre-orient] 1 of 3 part group(s) rotated to fit the sheet (0 snapped to a 4-step rotation, 1 off-step): #0=-60.45deg`.
+No such line means no part needed re-orienting.
 
-This runs once, per distinct part (not per copy), and is a no-op for input that already fits.
+This runs once, per distinct part (not per copy), and is a no-op for input that already fits. Note it
+compares bounding boxes only, so it does not account for kerf or the sheet's edge setback — a part that
+clears by a hair may still not place.

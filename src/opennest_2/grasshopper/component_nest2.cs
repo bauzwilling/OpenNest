@@ -174,6 +174,7 @@ namespace opennest_2
                 Tok("population", "10"),
                 "time 0",                         // not exposed (run_cpp uses Iterations; timeBudgetSecs = 0)
                 Tok("all_rotations", "1"),
+                Tok("fit_orientation", "1"),   // past index 8, so the positional mapping above is untouched
                 "exact_nfp 1",                    // not exposed: ALWAYS exact NFP (parts touch, no gap, no overlap)
                 Tok("font", "MecSoft_Font-1 1"),  // font row: EmitToken returns the raw token; must be LAST
             };
@@ -403,6 +404,7 @@ namespace opennest_2
                 int allRotations = 0;
                 int exactNfp = 1;   // default: exact NFP — parts touch with no gap and no overlap
                 int useHoles = 1;   // default: nest smaller parts into larger parts' holes ("element_holes")
+                int preOrient = 1;  // default: pre-orient oversized parts so they fit ("fit_orientation")
                 foreach (var line in parameters_text)
                 {
                     var t = line.Split(' ');
@@ -412,6 +414,8 @@ namespace opennest_2
                         && int.TryParse(t[1], out int en)) exactNfp = en;
                     if (t.Length >= 2 && t[0].Equals("element_holes", StringComparison.OrdinalIgnoreCase)
                         && int.TryParse(t[1], out int eh)) useHoles = eh;
+                    if (t.Length >= 2 && t[0].Equals("fit_orientation", StringComparison.OrdinalIgnoreCase)
+                        && int.TryParse(t[1], out int fo)) preOrient = fo;
                 }
 
                 _timeoutSecs = OptNum("timeout", 0);   // 0 = no limit
@@ -422,7 +426,7 @@ namespace opennest_2
 
                 try
                 {
-                    _pendingNest = new nest_lib.rhino_example(ref nest_sheets, ref nest_geo_dup, parameters, max_iterations);
+                    _pendingNest = new nest_lib.rhino_example(ref nest_sheets, ref nest_geo_dup, parameters, max_iterations, preOrient);
                     _pendingNest.TryAllRotations = allRotations;
                     _pendingNest.ExactNfp = exactNfp;
                     _pendingNest.UseHoles = useHoles;

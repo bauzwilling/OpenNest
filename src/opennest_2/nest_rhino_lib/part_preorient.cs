@@ -13,13 +13,19 @@ namespace nest_rhino_lib
     /// Rules, in order:
     ///   1. The part already fits a sheet as drawn  -> angle 0, geometry untouched (the overwhelmingly
     ///      common case, so this pass is a no-op for normal input).
-    ///   2. Some orientation fits                   -> the ROOMIEST one (most clearance inside the sheet);
-    ///      ties go to the smaller rotation. NOT the smallest rotation that fits: that is by construction
-    ///      the angle where the part only just stops overflowing, so it lands on ~zero clearance, the
-    ///      nester still cannot place it, and rhino_example gives an unplaced part Transform.Identity —
-    ///      the rotation is discarded and the user sees no change at all.
-    ///   3. No orientation fits at all              -> angle 0, left exactly as drawn. The solver reports
+    ///   2. It fits at one of the solver's own ROTATION STEPS (360/Rotations) -> snap to the roomiest such
+    ///      step. Preferred over a custom angle, because the engine explores base + k*360/n: snapping to a
+    ///      step leaves that set of orientations exactly as the Rotations setting describes it.
+    ///   3. Only if NO step fits  -> the roomiest custom angle from the continuous search. ROOMIEST, not
+    ///      the smallest rotation that fits: the smallest fitting rotation is by construction the angle
+    ///      where the part only just stops overflowing, so it lands on ~zero clearance, the nester still
+    ///      cannot place it, and rhino_example gives an unplaced part Transform.Identity - the rotation is
+    ///      discarded and the user sees no change at all.
+    ///   4. No orientation fits at all              -> angle 0, left exactly as drawn. The solver reports
     ///      it unplaced as before; a part that cannot be rescued is never rotated.
+    ///
+    /// The whole pass is OPTIONAL (the "Fit Orientation" option); the callers simply do not call it when
+    /// it is switched off, and then build the plain to_xy frames themselves.
     ///
     /// Why it matters: the initial orientation is what the placer starts from, and a part whose start
     /// orientation overflows the sheet can be dropped before the GA / relaxer ever gets to try a rotation
@@ -35,20 +41,33 @@ namespace nest_rhino_lib
     /// </summary>
     public static class part_preorient
     {
-        public static double[] FitAngles(nest_geo geo, nest_sheets sheets)
+        public static double[] FitAngles(nest_geo geo, nest_sheets sheets, int rotationSteps = 0)
         {
-            int ignored;
-            return FitAngles(geo, sheets, out ignored);
+            int snapped, custom;
+            return FitAngles(geo, sheets, rotationSteps, out snapped, out custom);
+        }
+
+        public static double[] FitAngles(nest_geo geo, nest_sheets sheets, int rotationSteps, out int rotatedCount)
+        {
+            int snapped, custom;
+            double[] a = FitAngles(geo, sheets, rotationSteps, out snapped, out custom);
+            rotatedCount = snapped + custom;
+            return a;
         }
 
         /// <summary>
         /// One rotation angle (RADIANS, CCW about Z) per group of <paramref name="geo"/>.boundary_sorted,
         /// to be applied to that group's nesting frame. 0 = leave the part as drawn.
-        /// <paramref name="rotatedCount"/> reports how many groups were actually re-oriented.
+        /// <paramref name="snappedCount"/> counts groups put on one of the solver's own rotation steps;
+        /// <paramref name="customCount"/> counts groups that needed an off-step angle because no step fit.
         /// </summary>
-        public static double[] FitAngles(nest_geo geo, nest_sheets sheets, out int rotatedCount)
+        /// <param name="rotationSteps">The solver's "Rotations" setting. A fitting step always beats a
+        /// custom angle. 0 or 1 = no step set; every rescue is then a custom angle.</param>
+        public static double[] FitAngles(nest_geo geo, nest_sheets sheets, int rotationSteps,
+                                         out int snappedCount, out int customCount)
         {
-            rotatedCount = 0;
+            snappedCount = 0;
+            customCount = 0;
             int nGroups = (geo == null || geo.boundary_sorted == null) ? 0 : geo.boundary_sorted.Count;
             double[] angles = new double[nGroups];
             if (nGroups == 0) return angles;
@@ -64,10 +83,10 @@ namespace nest_rhino_lib
                 if (outer == null || outer.Count < 3) continue;
 
                 double angle;
-                if (FitOrientation.Solve(Flatten(outer), sheetWh, out angle) == FitResult.Reoriented)
+                switch (FitOrientation.Solve(Flatten(outer), sheetWh, out angle, rotationSteps))
                 {
-                    angles[i] = angle;
-                    rotatedCount++;
+                    case FitResult.SnappedToStep: angles[i] = angle; snappedCount++; break;
+                    case FitResult.Reoriented:    angles[i] = angle; customCount++;  break;
                 }
             }
             return angles;
@@ -88,12 +107,36 @@ namespace nest_rhino_lib
         }
 
         /// <summary>Per-group to_xy frames for a whole nest_geo, pre-orientation applied.</summary>
-        public static Transform[] BuildToXy(nest_geo geo, nest_sheets sheets, out int rotatedCount)
+        public static Transform[] BuildToXy(nest_geo geo, nest_sheets sheets, out int rotatedCount,
+                                            int rotationSteps = 0)
         {
-            double[] angles = FitAngles(geo, sheets, out rotatedCount);
+            double[] angles = FitAngles(geo, sheets, rotationSteps, out rotatedCount);
+            return BuildToXy(geo, angles);
+        }
+
+        /// <summary>
+        /// Per-group to_xy frames for the given per-group angles. Pass all-zero angles (or use
+        /// <see cref="PlainToXy"/>) to get the untouched frames, which is what a caller does when the
+        /// "Fit Orientation" option is off.
+        /// </summary>
+        public static Transform[] BuildToXy(nest_geo geo, double[] angles)
+        {
             Transform[] to_xy = new Transform[angles.Length];
             for (int i = 0; i < angles.Length; i++)
                 to_xy[i] = ToXy(geo.boundary_sorted[i][0].Item2, angles[i]);
+            return to_xy;
+        }
+
+        /// <summary>
+        /// The plain, un-rotated to_xy frames - exactly what the solvers built before this pass existed.
+        /// Used when the "Fit Orientation" option is off, so that path stays byte-for-byte the old one.
+        /// </summary>
+        public static Transform[] PlainToXy(nest_geo geo)
+        {
+            int nGroups = (geo == null || geo.boundary_sorted == null) ? 0 : geo.boundary_sorted.Count;
+            Transform[] to_xy = new Transform[nGroups];
+            for (int i = 0; i < nGroups; i++)
+                to_xy[i] = ToXy(geo.boundary_sorted[i][0].Item2, 0.0);
             return to_xy;
         }
 
@@ -104,13 +147,14 @@ namespace nest_rhino_lib
         /// from here rather than from the as-drawn box, or it reasons about an orientation the solver no
         /// longer uses.
         /// </summary>
-        public static List<Tuple<double, double>> GroupExtents(nest_geo geo, nest_sheets sheets)
+        public static List<Tuple<double, double>> GroupExtents(nest_geo geo, nest_sheets sheets,
+                                                               int rotationSteps = 0, bool preOrient = true)
         {
             int nGroups = (geo == null || geo.boundary_sorted == null) ? 0 : geo.boundary_sorted.Count;
             var result = new List<Tuple<double, double>>(nGroups);
             if (nGroups == 0) return result;
 
-            double[] angles = FitAngles(geo, sheets);
+            double[] angles = preOrient ? FitAngles(geo, sheets, rotationSteps) : new double[nGroups];
             for (int i = 0; i < nGroups; i++)
             {
                 var rings = geo.boundary_sorted[i];

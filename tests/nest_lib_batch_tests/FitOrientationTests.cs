@@ -169,6 +169,126 @@ namespace nest_lib_batch_tests
                         "returned the old zero-clearance orientation");
         }
 
+        // ---- the solver's own rotation steps come first -----------------------------------------------
+
+        [Fact]
+        public void AFittingRotationStep_IsPreferredOverACustomAngle()
+        {
+            // 900 x 100 bar, sheet 200 x 1000: a plain 90 deg works, so the pass must use 90 and NOT the
+            // roomiest off-step angle. Snapping keeps the engine's rotation set (base + k*360/n) unchanged.
+            var part = Rect(900, 100);
+            var sheets = new[] { 200.0, 1000.0 };
+
+            double angle;
+            Assert.Equal(FitResult.SnappedToStep, FitOrientation.Solve(part, sheets, out angle, 4));
+            Assert.Equal(90.0, angle * 180.0 / Math.PI, 9);
+            AssertFitsAfter(part, sheets, angle);
+        }
+
+        [Fact]
+        public void TheSmallestFittingStepWinsATie()
+        {
+            // 90 and 270 have identical bounding boxes, so both fit; the smaller rotation must win.
+            var part = Rect(900, 100);
+            double angle;
+            Assert.Equal(FitResult.SnappedToStep,
+                         FitOrientation.Solve(part, new[] { 200.0, 1000.0 }, out angle, 4));
+            Assert.Equal(90.0, angle * 180.0 / Math.PI, 9);
+        }
+
+        [Fact]
+        public void WhenNoStepFits_ItFallsBackToTheRoomiestCustomAngle()
+        {
+            // The real DXF part: at 4 steps neither 0/90/180/270 fits a 2500 x 1250 sheet, so the pass
+            // has to leave the step set and find an off-step angle.
+            var part = new[]
+            {
+                5548.5544, -3598.7999,
+                5163.6645, -4277.7731,
+                4591.2039, -2919.8268,
+                5933.4444, -2919.8268,
+            };
+            var sheets = new[] { 2500.0, 1250.0 };
+
+            foreach (int steps in new[] { 1, 2, 4 })
+                Assert.False(FitOrientation.Fits(part, Math.PI / 2, sheets),
+                             "precondition: no quarter-turn step fits");
+
+            double angle;
+            Assert.Equal(FitResult.Reoriented, FitOrientation.Solve(part, sheets, out angle, 4));
+            AssertFitsAfter(part, sheets, angle);
+            AssertNoRoomierAngle(part, sheets, angle);
+        }
+
+        [Fact]
+        public void ManySteps_FindOneWhereFewStepsCannot()
+        {
+            // The same part with a fine step set: 3600 steps (0.1 deg) contains a fitting orientation, so
+            // the pass snaps instead of going off-step.
+            var part = new[]
+            {
+                5548.5544, -3598.7999,
+                5163.6645, -4277.7731,
+                4591.2039, -2919.8268,
+                5933.4444, -2919.8268,
+            };
+            var sheets = new[] { 2500.0, 1250.0 };
+
+            double angle;
+            Assert.Equal(FitResult.SnappedToStep, FitOrientation.Solve(part, sheets, out angle, 3600));
+            AssertFitsAfter(part, sheets, angle);
+
+            // and it is a genuine multiple of the step
+            double stepDeg = 360.0 / 3600.0;
+            double k = angle * 180.0 / Math.PI / stepDeg;
+            Assert.Equal(Math.Round(k), k, 6);
+        }
+
+        [Fact]
+        public void APartThatAlreadyFits_IsStillUntouchedWhateverTheStepCount()
+        {
+            double angle;
+            foreach (int steps in new[] { 0, 1, 4, 3600 })
+            {
+                Assert.Equal(FitResult.AlreadyFits,
+                             FitOrientation.Solve(Rect(100, 50), new[] { 1000.0, 500.0 }, out angle, steps));
+                Assert.Equal(0.0, angle);
+            }
+        }
+
+        [Fact]
+        public void StepSearchNeverReturnsAnAngleThatDoesNotFit()
+        {
+            var rnd = new Random(4242);
+            for (int t = 0; t < 300; t++)
+            {
+                int n = 3 + rnd.Next(10);
+                var xy = new double[n * 2];
+                for (int i = 0; i < n * 2; i++) xy[i] = rnd.NextDouble() * 900.0 - 450.0;
+                var sheets = new[] { 150.0 + rnd.NextDouble() * 700.0, 150.0 + rnd.NextDouble() * 700.0 };
+                int steps = new[] { 2, 3, 4, 8, 16 }[rnd.Next(5)];
+
+                double angle;
+                var r = FitOrientation.Solve(xy, sheets, out angle, steps);
+                if (r == FitResult.AlreadyFits || r == FitResult.NoFit) { Assert.Equal(0.0, angle); continue; }
+
+                Assert.True(FitOrientation.Fits(xy, angle, sheets), "returned an angle that does not fit");
+
+                if (r == FitResult.SnappedToStep)
+                {
+                    double k = angle / (2.0 * Math.PI / steps);
+                    Assert.Equal(Math.Round(k), k, 9);
+                }
+                else
+                {
+                    // off-step is only allowed when NO step fits
+                    for (int k = 1; k < steps; k++)
+                        Assert.False(FitOrientation.Fits(xy, k * 2.0 * Math.PI / steps, sheets),
+                                     $"step {k} fits, so an off-step angle should not have been used");
+                }
+            }
+        }
+
         // ---- rule 3: nothing fits -> leave it alone --------------------------------------------------
 
         [Fact]

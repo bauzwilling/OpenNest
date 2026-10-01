@@ -67,6 +67,7 @@ namespace opennest_2
         private nest_rhino_lib.nest_sheets _snapSheets;
         private nest_rhino_lib.nest_geo _snapTemplate;
         private List<double> _snapParams;
+        private bool _snapFitOrient = true;
         private int _snapIterations = 6;
         private int _snapTries = 1;
         private int _snapBaseSeed = 1;
@@ -96,6 +97,7 @@ namespace opennest_2
         // ---- scratch read from the input ports ----
         private double x = 0;
         private double spacing = 1;
+        private bool fitOrient = true;   // "Fit Orient" input: run the pre-orientation pass
         private int placement = 1;
         private double tolerance = 0.1;
         private int rotations = 2;
@@ -127,6 +129,7 @@ namespace opennest_2
             pManager.AddBooleanParameter("Reset", "Reset", "Set TRUE (wire a Button) to clear the whole component instantly and drop any running solve.", GH_ParamAccess.item, false);
             pManager.AddBooleanParameter("Run", "Run", "Wire a Boolean Toggle. TRUE = solve now and re-solve automatically when an input changes (background thread, Rhino stays responsive, live preview). FALSE = hold the last result. Use Reset to clear.", GH_ParamAccess.item, false);
             pManager.AddNumberParameter("Timeout", "Timeout", "Stop after this many seconds and keep the best layout so far (0 = no limit).", GH_ParamAccess.item, 0);
+            pManager.AddBooleanParameter("Fit Orient", "Fit Orient", "Before nesting, rotate any part whose bounding box does not fit a sheet as drawn into an orientation that does — preferring one of the Rotations steps, and only using an off-step angle when no step fits. Parts that already fit are never touched.", GH_ParamAccess.item, true);
 
             for (int i = 2; i < pManager.ParamCount; i++) pManager[i].Optional = true;
         }
@@ -274,6 +277,7 @@ namespace opennest_2
             DA.GetData(8, ref reset);
             DA.GetData(9, ref this.run);
             double timeoutSecs = 0; DA.GetData(10, ref timeoutSecs); _timeoutSecs = Math.Max(0, timeoutSecs);
+            this.fitOrient = true; DA.GetData(11, ref this.fitOrient);
             var parameters = process_inputs(DA);   // reads ports 2..7
 
             // Embedded / headless host (cluster, ScriptEditor "Create Project", Player, Compute): the async
@@ -380,6 +384,7 @@ namespace opennest_2
             _snapSheets = sheets;
             _snapTemplate = template;
             _snapParams = parameters;
+            _snapFitOrient = this.fitOrient;
             _snapIterations = Math.Max(1, iterations);
             _snapTries = Math.Max(1, this.tries);
             _snapBaseSeed = (parameters != null && parameters.Count > 4) ? (int)parameters[4] : 1;
@@ -455,7 +460,8 @@ namespace opennest_2
                     if (paramsTry.Count > 4) paramsTry[4] = _snapBaseSeed + t;
                     if (paramsTry.Count > 3) paramsTry[3] = 0.0;   // spacing applied UPSTREAM (geo+sheet offset) — don't double it in the solver
 
-                    var nestTry = new nest_lib.rhino_example(ref sheetsRef, ref geoTry, paramsTry, _snapIterations);
+                    var nestTry = new nest_lib.rhino_example(ref sheetsRef, ref geoTry, paramsTry, _snapIterations,
+                                                            _snapFitOrient ? 1 : 0);
                     nestTry.TryAllRotations = 0;   // first valid orientation per placement = far faster; GA still varies rotations
 
                     _liveNest = nestTry;   // expose the in-flight try to the live preview
@@ -536,11 +542,11 @@ namespace opennest_2
         {
             var s = new List<IGH_GeometricGoo>(); DA.GetDataList(0, s);
             var g = new List<IGH_GeometricGoo>(); DA.GetDataList(1, g);
-            return SigOf(s, g, this.iterations, this.tries, parameters);
+            return SigOf(s, g, this.iterations, this.tries, parameters, this.fitOrient);
         }
 
         private static string SigOf(List<IGH_GeometricGoo> sheets, List<IGH_GeometricGoo> geo,
-                                    int iters, int tries, List<double> parameters)
+                                    int iters, int tries, List<double> parameters, bool fitOrient)
         {
             long[] h = { unchecked((long)1469598103934665603) };   // FNV-1a-ish
             void MixI(long v) { unchecked { h[0] = (h[0] ^ v) * 1099511628211L; } }
@@ -566,7 +572,7 @@ namespace opennest_2
                 }
                 catch { }
             }
-            MixI(iters); MixI(tries);
+            MixI(iters); MixI(tries); MixI(fitOrient ? 1 : 0);
             if (parameters != null) foreach (var v in parameters) MixD(v);
             if (sheets != null) { MixI(sheets.Count); foreach (var gg in sheets) MixGoo(gg); }
             if (geo != null) { MixI(geo.Count); foreach (var gg in geo) MixGoo(gg); }

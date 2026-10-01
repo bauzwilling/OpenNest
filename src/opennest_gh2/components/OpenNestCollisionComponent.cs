@@ -103,11 +103,12 @@ namespace opennest_gh2.components
             int poles = OptInt("poles", 48);
             bool compactOn = OptToken("compact", 1) != 0;        // Off=>false, Bottom-Left/Multi=>true
             int fitMode = OptToken("fit", 0);                    // default All parts=>0 (One sheet=>1)
+            int preOrient = OptToken("fit_orientation", 1);      // pre-orient oversized parts so they fit
 
             var run = new NpRun();
             // NpRun.Flatten reads parameters positionally: [0]=rotations [1]=seed [2]=starts.
             run.Flatten(sheets, geo, new List<double> { rotations, seed, starts < 1 ? 1 : starts },
-                        iterations < 1 ? 1 : iterations, partHolesMode, poles, compactOn, fitMode);
+                        iterations < 1 ? 1 : iterations, partHolesMode, poles, compactOn, fitMode, preOrient);
             if (!run.Ready) { access.AddError("Nothing to nest", "No parts/sheet after flattening."); return false; }
 
             _sheets = sheets; _geo = geo; _run = run;

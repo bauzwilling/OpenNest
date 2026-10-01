@@ -95,6 +95,7 @@ namespace opennest_2
                 Tok("population", "10"),
                 "time 0",
                 Tok("all_rotations", "1"),
+                Tok("fit_orientation", "1"),   // past index 8, so the positional mapping above is untouched
                 "exact_nfp 1",
                 Tok("font", "MecSoft_Font-1 1"),
             };
@@ -217,13 +218,14 @@ namespace opennest_2
                     if (double.TryParse(t[id], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double r)) parameters.Add(r);
                 }
                 _font = optStrings[optStrings.Count - 1];
-                int allRot = 0, exactNfp = 1, useHoles = 1;
+                int allRot = 0, exactNfp = 1, useHoles = 1, preOrient = 1;
                 foreach (var line in optStrings)
                 {
                     var t = line.Split(' ');
                     if (t.Length >= 2 && t[0] == "all_rotations" && int.TryParse(t[1], out int ar)) allRot = ar;
                     if (t.Length >= 2 && t[0] == "exact_nfp" && int.TryParse(t[1], out int en)) exactNfp = en;
                     if (t.Length >= 2 && t[0] == "element_holes" && int.TryParse(t[1], out int eh)) useHoles = eh;
+                    if (t.Length >= 2 && t[0] == "fit_orientation" && int.TryParse(t[1], out int fo)) preOrient = fo;
                 }
 
                 // Duplicate inputs (the solver mutates them) and build the engine + orchestrator.
@@ -231,7 +233,7 @@ namespace opennest_2
                 var sheetsDup = sheets.duplicate();
                 try
                 {
-                    _engine = new nest_lib.OpenNestBatchEngine(_masterGeo, sheetsDup, parameters, iterations, allRot, exactNfp, useHoles);
+                    _engine = new nest_lib.OpenNestBatchEngine(_masterGeo, sheetsDup, parameters, iterations, allRot, exactNfp, useHoles, preOrient);
                 }
                 catch (Exception ex) { RhinoApp.WriteLine(ex.ToString()); ReleaseEngine(); this.Message = "input error"; return; }
 
@@ -369,13 +371,14 @@ namespace opennest_2
                 if (double.TryParse(t[id], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double r)) parameters.Add(r);
             }
             _font = optStrings[optStrings.Count - 1];
-            int allRot = 0, exactNfp = 1, useHoles = 1;
+            int allRot = 0, exactNfp = 1, useHoles = 1, preOrient = 1;
             foreach (var line in optStrings)
             {
                 var t = line.Split(' ');
                 if (t.Length >= 2 && t[0] == "all_rotations" && int.TryParse(t[1], out int ar)) allRot = ar;
                 if (t.Length >= 2 && t[0] == "exact_nfp" && int.TryParse(t[1], out int en)) exactNfp = en;
                 if (t.Length >= 2 && t[0] == "element_holes" && int.TryParse(t[1], out int eh)) useHoles = eh;
+                if (t.Length >= 2 && t[0] == "fit_orientation" && int.TryParse(t[1], out int fo)) preOrient = fo;
             }
 
             bool gated = false;
@@ -384,7 +387,7 @@ namespace opennest_2
                 gated = EngineGate.Nfp.TryAcquire(_wake);   // best-effort; an embedded host is usually the only solver running
                 _masterGeo = geo.duplicate();
                 var sheetsDup = sheets.duplicate();
-                _engine = new nest_lib.OpenNestBatchEngine(_masterGeo, sheetsDup, parameters, iterations, allRot, exactNfp, useHoles);
+                _engine = new nest_lib.OpenNestBatchEngine(_masterGeo, sheetsDup, parameters, iterations, allRot, exactNfp, useHoles, preOrient);
                 _cancelled = false; _progress = "";
                 _timeoutSecs = OptNum("timeout", 0);
                 _phase = Phase.Computing;

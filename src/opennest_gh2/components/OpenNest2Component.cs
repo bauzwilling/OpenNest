@@ -94,7 +94,8 @@ namespace opennest_gh2.components
                 OptNum("seed", 30), 1.0, OptNum("mutation", 10), OptNum("population", 10), 0
             };
 
-            var nest = new nest_lib.rhino_example(ref sheets, ref geo, parameters, totalGen);
+            var nest = new nest_lib.rhino_example(ref sheets, ref geo, parameters, totalGen,
+                                                  OptToken("fit_orientation", 1));
             nest.ExactNfp = 1;
             nest.TryAllRotations = OptToken("all_rotations", 1);
             nest.UseHoles = OptToken("element_holes", 1);

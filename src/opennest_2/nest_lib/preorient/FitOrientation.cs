@@ -8,10 +8,19 @@ namespace nest_lib.preorient
     {
         /// <summary>The part's bounding box already fits a sheet as drawn — angle 0, nothing to do.</summary>
         AlreadyFits = 0,
-        /// <summary>The part did not fit as drawn but does after the returned rotation.</summary>
-        Reoriented = 1,
+        /// <summary>
+        /// The part fits at one of the solver's OWN rotation steps (360/Rotations), and the returned angle
+        /// is that step. Preferred over a custom angle: the step set the engine explores is unchanged, so
+        /// the solve still only ever sees orientations it would have tried anyway.
+        /// </summary>
+        SnappedToStep = 1,
+        /// <summary>
+        /// No rotation step fits, so the returned angle is a CUSTOM one found by the continuous search.
+        /// This shifts the engine's whole rotation set by that angle.
+        /// </summary>
+        Reoriented = 2,
         /// <summary>No orientation fits any sheet — angle 0, the part is left exactly as drawn.</summary>
-        NoFit = 2,
+        NoFit = 3,
     }
 
     /// <summary>
@@ -46,6 +55,14 @@ namespace nest_lib.preorient
     /// Only the choice of angle WITHIN a feasible arc is sampled (ArcSamples points, then a ternary
     /// refinement). Sampling there can at worst pick a slightly less roomy angle in the same arc - it can
     /// never miss a fit or return an angle that does not fit, both of which are checked exactly.
+    ///
+    /// THE SOLVER'S OWN ROTATION STEPS COME FIRST. All of the above is the FALLBACK. Given a step count
+    /// (the "Rotations" option, n => steps of 360/n), the pass first asks whether the part fits at any of
+    /// those steps and, if so, snaps to the roomiest one. That matters because the engine explores
+    /// orientations as base + k*360/n: snapping to a step leaves that set unchanged, so the nest is the
+    /// one the user's Rotations setting already described. A custom angle rotates the whole set to
+    /// somewhere the user never asked for, which is worth doing to rescue a part that would otherwise go
+    /// unplaced, but not worth doing when a plain 90 degrees would have served.
     /// </summary>
     public static class FitOrientation
     {
@@ -69,8 +86,19 @@ namespace nest_lib.preorient
         /// <param name="sheetWh">Sheet bounding-box sizes, interleaved width,height. The part need only fit
         /// ONE of them.</param>
         /// <param name="angle">Rotation to apply, in RADIANS CCW about Z. 0 unless the result is
-        /// <see cref="FitResult.Reoriented"/>.</param>
+        /// <see cref="FitResult.SnappedToStep"/> or <see cref="FitResult.Reoriented"/>.</param>
         public static FitResult Solve(double[] xy, double[] sheetWh, out double angle)
+        {
+            return Solve(xy, sheetWh, out angle, 0);
+        }
+
+        /// <summary>
+        /// Decide the initial orientation for one part, preferring the solver's own rotation steps.
+        /// </summary>
+        /// <param name="rotationSteps">The "Rotations" setting: the part may be tried at k*360/n degrees.
+        /// A fitting step always wins over a custom angle. 0 or 1 = no step set, go straight to the
+        /// continuous search.</param>
+        public static FitResult Solve(double[] xy, double[] sheetWh, out double angle, int rotationSteps)
         {
             angle = 0.0;
             if (xy == null || xy.Length < 6) return FitResult.AlreadyFits;           // degenerate: not our call
@@ -78,6 +106,26 @@ namespace nest_lib.preorient
 
             double[] hull = Hull(xy);
             if (Fits(hull, 0.0, sheetWh)) return FitResult.AlreadyFits;
+
+            // 1) The engine's OWN rotation steps, roomiest first. Preferred over any custom angle: it
+            //    leaves the set of orientations the solve explores exactly as the Rotations setting
+            //    describes it. Ascending k, replaced only on strictly more clearance, so the smallest
+            //    fitting step wins a tie (90 over 270, which have identical bounding boxes).
+            if (rotationSteps > 1)
+            {
+                bool gotStep = false;
+                double bestStep = 0.0, bestStepClear = double.NegativeInfinity;
+                for (int k = 1; k < rotationSteps; k++)
+                {
+                    double t = k * 2.0 * Math.PI / rotationSteps;
+                    if (!Fits(hull, t, sheetWh)) continue;
+                    double c = Clearance(hull, t, sheetWh);
+                    if (!gotStep || c > bestStepClear) { gotStep = true; bestStepClear = c; bestStep = t; }
+                }
+                if (gotStep) { angle = bestStep; return FitResult.SnappedToStep; }
+            }
+
+            // 2) No step fits — fall back to the continuous search for the roomiest angle anywhere.
 
             List<double> criticals = CriticalAngles(hull, sheetWh);
             if (criticals.Count == 0) return FitResult.NoFit;

@@ -38,8 +38,10 @@ namespace nest_lib
         public List<List<Transform>> output_transforms;
         public List<List<int>> output_polygon_sheet_ids;
         public List<Polyline> simplified_polygons = new List<Polyline>();
-        // How many part GROUPS the pre-orientation pass rotated so they fit a sheet (diagnostic only).
+        // How many part GROUPS the pre-orientation pass rotated so they fit a sheet, and how many of those
+        // needed an OFF-STEP angle because no rotation step fit (diagnostics only).
         public int PreOrientedCount = 0;
+        public int PreOrientedCustomCount = 0;
         private int max_iterations = 3;
         private long max_time_in_seconds = 0;
         private Transform[] to_xy = null; //transformation to XY plane for each sheet
@@ -58,10 +60,14 @@ namespace nest_lib
         public List<Polyline> LiveSheets = new List<Polyline>();    // layout-frame sheet outlines (static during a run)
 
 
+        // preOrient: 1 = run the pre-orientation pass ("Fit Orientation"), 0 = skip it entirely and build
+        // the plain frames, which is byte-for-byte the behaviour from before the pass existed. It is a ctor
+        // argument rather than a property because the pass runs HERE, before the caller could set one.
         public rhino_example(
             ref nest_rhino_lib.nest_sheets nest_sheets, ref nest_rhino_lib.nest_geo geometry,
             List<double> parameters,
-            int max_iterations = 3
+            int max_iterations = 3,
+            int preOrient = 1
             )
         {
             
@@ -152,30 +158,42 @@ namespace nest_lib
             //to_xy is used in load_sample_data that orients input boundaries with holes
             //to_xy also transformation is used in get_results function
             //
-            //PRE-ORIENTATION: a part whose bbox overflows every sheet AS DRAWN is first rotated about Z
-            //into the ROOMIEST orientation that fits (part_preorient); that rotation is folded into its
-            //to_xy, so the GA starts it from a fitting orientation instead of dropping it. Parts that
-            //already fit, and parts no orientation can rescue, get angle 0 = the previous behaviour.
+            //PRE-ORIENTATION ("Fit Orientation", optional): a part whose bbox overflows every sheet AS
+            //DRAWN is rotated about Z into an orientation that fits - one of the GA's own rotation steps
+            //(360/rotations) where possible, an off-step angle only when no step fits. That rotation is
+            //folded into its to_xy, so the GA starts it from a fitting orientation instead of dropping it.
+            //Parts that already fit, and parts no orientation can rescue, get angle 0.
             ///////////////////////////////////////////////////////////////////////////////////
-            var preAngles = nest_rhino_lib.part_preorient.FitAngles(geometry, nest_sheets, out PreOrientedCount);
-            to_xy = new Transform[preAngles.Length];
-            for (int i = 0; i < preAngles.Length; i++)
-                to_xy[i] = nest_rhino_lib.part_preorient.ToXy(geometry.boundary_sorted[i][0].Item2, preAngles[i]);
-
-            // Say so on the command line. Without this the pass is completely invisible: if a re-oriented
-            // part still fails to place, get_results hands it Transform.Identity and it renders exactly as
-            // drawn, which is indistinguishable from the pass never having run.
-            if (PreOrientedCount > 0)
+            if (preOrient != 0)
             {
-                var msg = new System.Text.StringBuilder();
-                msg.Append("[pre-orient] ").Append(PreOrientedCount).Append(" of ").Append(preAngles.Length)
-                   .Append(" part group(s) rotated to fit the sheet:");
-                for (int i = 0; i < preAngles.Length; i++)
-                    if (preAngles[i] != 0.0)
-                        msg.Append(" #").Append(i).Append('=')
-                           .Append((preAngles[i] * 180.0 / Math.PI).ToString("F2",
-                                   System.Globalization.CultureInfo.InvariantCulture)).Append("deg");
-                RhinoApp.WriteLine(msg.ToString());
+                int snapped, custom;
+                var preAngles = nest_rhino_lib.part_preorient.FitAngles(
+                    geometry, nest_sheets, SvgNest.Config.rotations, out snapped, out custom);
+                PreOrientedCount = snapped + custom;
+                PreOrientedCustomCount = custom;
+                to_xy = nest_rhino_lib.part_preorient.BuildToXy(geometry, preAngles);
+
+                // Say so on the command line. Without this the pass is completely invisible: if a
+                // re-oriented part still fails to place, get_results hands it Transform.Identity and it
+                // renders exactly as drawn - indistinguishable from the pass never having run.
+                if (PreOrientedCount > 0)
+                {
+                    var msg = new System.Text.StringBuilder();
+                    msg.Append("[pre-orient] ").Append(PreOrientedCount).Append(" of ")
+                       .Append(preAngles.Length).Append(" part group(s) rotated to fit the sheet (")
+                       .Append(snapped).Append(" snapped to a ").Append(SvgNest.Config.rotations)
+                       .Append("-step rotation, ").Append(custom).Append(" off-step):");
+                    for (int i = 0; i < preAngles.Length; i++)
+                        if (preAngles[i] != 0.0)
+                            msg.Append(" #").Append(i).Append('=')
+                               .Append((preAngles[i] * 180.0 / Math.PI).ToString("F2",
+                                       System.Globalization.CultureInfo.InvariantCulture)).Append("deg");
+                    RhinoApp.WriteLine(msg.ToString());
+                }
+            }
+            else
+            {
+                to_xy = nest_rhino_lib.part_preorient.PlainToXy(geometry);
             }
 
             context.partsLocal = new List<NestItem>();

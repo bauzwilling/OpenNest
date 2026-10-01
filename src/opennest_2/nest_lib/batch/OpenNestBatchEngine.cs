@@ -22,7 +22,7 @@ namespace nest_lib
         private readonly nest_rhino_lib.nest_sheets _sheetsTemplate;
         private readonly List<double> _parameters;
         private readonly int _maxIterations;
-        private readonly int _allRotations, _exactNfp, _useHoles;
+        private readonly int _allRotations, _exactNfp, _useHoles, _preOrient;
 
         // instanceId -> master group index (built once).
         private readonly Dictionary<int, int> _instanceMaster = new Dictionary<int, int>();
@@ -43,13 +43,13 @@ namespace nest_lib
 
         public OpenNestBatchEngine(nest_rhino_lib.nest_geo master, nest_rhino_lib.nest_sheets sheetsTemplate,
                                    List<double> parameters, int maxIterations,
-                                   int allRotations, int exactNfp, int useHoles)
+                                   int allRotations, int exactNfp, int useHoles, int preOrient = 1)
         {
             _master = master;
             _sheetsTemplate = sheetsTemplate;
             _parameters = parameters;
             _maxIterations = Math.Max(1, maxIterations);
-            _allRotations = allRotations; _exactNfp = exactNfp; _useHoles = useHoles;
+            _allRotations = allRotations; _exactNfp = exactNfp; _useHoles = useHoles; _preOrient = preOrient;
 
             // Expand copies into instances. instanceId is a dense 0..M-1 index across all groups.
             var copies = master.GroupCopies();
@@ -91,7 +91,9 @@ namespace nest_lib
         public List<PartDescriptor> BuildDescriptors()
         {
             var areas = _master.GroupAreas();
-            var bounds = nest_rhino_lib.part_preorient.GroupExtents(_master, _sheetsTemplate);
+            int rotationSteps = (_parameters != null && _parameters.Count > 0) ? (int)_parameters[0] : 0;
+            var bounds = nest_rhino_lib.part_preorient.GroupExtents(
+                _master, _sheetsTemplate, rotationSteps, _preOrient != 0);
             var list = new List<PartDescriptor>(_instanceMaster.Count);
             foreach (var kv in _instanceMaster.OrderBy(k => k.Key))
             {
@@ -137,7 +139,7 @@ namespace nest_lib
             // Fresh sheet copy per solve (the solver offsets/transforms sheets in place).
             var sheets = _sheetsTemplate.duplicate();
 
-            var nest = new rhino_example(ref sheets, ref sub, _parameters, _maxIterations)
+            var nest = new rhino_example(ref sheets, ref sub, _parameters, _maxIterations, _preOrient)
             {
                 TryAllRotations = _allRotations,
                 ExactNfp = _exactNfp,

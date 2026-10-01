@@ -35,6 +35,7 @@ namespace opennest_gh2.components
             inputs.AddInteger("Seed", "Seed", "Random seed.", Access.Item, Requirement.MayBeMissing).Set(1);
             inputs.AddBoolean("Reset", "Reset", "Set true to clear the outputs.", Access.Item, Requirement.MayBeMissing).Set(false);
             inputs.AddBoolean("Run", "Run", "Set true to nest.", Access.Item, Requirement.MayBeMissing).Set(true);
+            inputs.AddBoolean("Fit Orient", "Fit Orient", "Before nesting, rotate any part whose bounding box does not fit a sheet as drawn into an orientation that does - preferring one of the Rotations steps, and only using an off-step angle when no step fits. Parts that already fit are never touched.", Access.Item, Requirement.MayBeMissing).Set(true);
         }
 
         protected override void AddOutputs(OutputAdder outputs)
@@ -93,7 +94,9 @@ namespace opennest_gh2.components
 
             // rhino_example parameters[0..8]: rotations, wiggle, placement, spacing, seed, curveTol, mutation, population, time.
             var parameters = new List<double> { rotations, 0, placement, spacing, seed, tol, 10, 10, 0 };
-            var nest = new nest_lib.rhino_example(ref sheets, ref geo, parameters, iterations < 1 ? 1 : iterations);
+            access.GetItem(10, out bool fitOrient);
+            var nest = new nest_lib.rhino_example(ref sheets, ref geo, parameters, iterations < 1 ? 1 : iterations,
+                                                  fitOrient ? 1 : 0);
             nest.ExactNfp = 1;
             lock (s_engineLock)
                 nest.static_solver(ref geo);

@@ -358,18 +358,24 @@ namespace opennest_2
                 }
                 _pendingFont = parameters_text.Count > 0 ? parameters_text[parameters_text.Count - 1] : "MecSoft_Font-1 1";
 
-                // element_holes / poles / compact: parse BY NAME (robust to dropdown order). Sheet holes are
-                // ALWAYS kept out when the sheet has them (no toggle). element_holes: 0=off, 1=fill, 2=fill-first.
+                // element_holes / poles / compact / fit / fit_orientation: parse BY NAME (robust to dropdown
+                // order). Sheet holes are ALWAYS kept out when the sheet has them (no toggle).
+                // element_holes: 0=off, 1=fill, 2=fill-first.
+                // The key is matched EXACTLY, not by prefix: "fit" and "fit_orientation" are different
+                // options and a StartsWith("fit") test would let fit_orientation silently set fitMode.
                 int partHolesMode = 1; int poles = 48; bool compact = true; int fitMode = 0;   // 0 = all parts / fewest sheets (default)
+                int preOrient = 1;   // "fit_orientation": pre-orient oversized parts so they fit
                 foreach (var ln in parameters_text)
                 {
                     string t = (ln ?? "").Trim();
                     var tk = t.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                     if (tk.Length < 2) continue;
-                    if (t.StartsWith("element_holes", StringComparison.OrdinalIgnoreCase) && int.TryParse(tk[tk.Length - 1], out int em)) partHolesMode = em;
-                    else if (t.StartsWith("poles", StringComparison.OrdinalIgnoreCase) && int.TryParse(tk[tk.Length - 1], out int pv)) poles = pv;
-                    else if (t.StartsWith("compact", StringComparison.OrdinalIgnoreCase) && double.TryParse(tk[tk.Length - 1], out double cv)) compact = (cv != 0.0);
-                    else if (t.StartsWith("fit", StringComparison.OrdinalIgnoreCase) && int.TryParse(tk[tk.Length - 1], out int fm)) fitMode = fm;
+                    string key = tk[0], val = tk[tk.Length - 1];
+                    if (key.Equals("element_holes", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out int em)) partHolesMode = em;
+                    else if (key.Equals("poles", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out int pv)) poles = pv;
+                    else if (key.Equals("compact", StringComparison.OrdinalIgnoreCase) && double.TryParse(val, out double cv)) compact = (cv != 0.0);
+                    else if (key.Equals("fit", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out int fm)) fitMode = fm;
+                    else if (key.Equals("fit_orientation", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out int fo)) preOrient = fo;
                 }
 
                 _timeoutSecs = OptNum("timeout", 0);   // 0 = no limit
@@ -378,7 +384,7 @@ namespace opennest_2
                 DA.GetData(3, ref max_iterations);   // Iterations shifted to index 3 (Options inserted at 2)
 
                 NpRun pending = new NpRun();
-                try { pending.Flatten(nest_sheets, nest_geo_dup, parameters, max_iterations, partHolesMode, poles, compact, fitMode); }
+                try { pending.Flatten(nest_sheets, nest_geo_dup, parameters, max_iterations, partHolesMode, poles, compact, fitMode, preOrient); }
                 catch (Exception ex) { Rhino.RhinoApp.WriteLine(ex.ToString()); ReleaseEngine(); this.Message = "input error"; return; }
                 if (!pending.Ready) { ReleaseEngine(); this.Message = "no geometry / sheet"; return; }
 
@@ -806,16 +812,28 @@ namespace opennest_2
 
         public void Flatten(nest_rhino_lib.nest_sheets nest_sheets, nest_rhino_lib.nest_geo nest_geo,
                             List<double> parameters, int max_iterations, int partHolesMode = 1,
-                            int poles = 0, bool compact = false, int fitMode = 0)
+                            int poles = 0, bool compact = false, int fitMode = 0, int preOrient = 1)
         {
             int nGroups = nest_geo.boundary_sorted.Count;
 
             // per-group orientation onto WorldXY (matches rhino_example.to_xy: the part's first outer
-            // vertex becomes the local frame origin), with the PRE-ORIENTATION pass folded in: a part
-            // whose bbox overflows every sheet as drawn starts from the smallest rotation that fits, so
-            // the relaxer is not handed a part that cannot be placed. Parts that already fit (and parts
-            // no orientation can rescue) get angle 0 = the previous frame, unchanged.
-            Transform[] to_xy = nest_rhino_lib.part_preorient.BuildToXy(nest_geo, nest_sheets, out _preOrientedGroups);
+            // vertex becomes the local frame origin), with the PRE-ORIENTATION pass folded in when the
+            // "Fit Orientation" option is on: a part whose bbox overflows every sheet as drawn starts from
+            // an orientation that fits - one of the solver's own rotation steps where possible - so the
+            // relaxer is not handed a part it cannot place. Parts that already fit (and parts no
+            // orientation can rescue) get angle 0 = the previous frame, unchanged.
+            _preOrientedGroups = 0;
+            Transform[] to_xy;
+            if (preOrient != 0)
+            {
+                int rotationSteps = (parameters != null && parameters.Count > 0) ? (int)parameters[0] : 0;
+                to_xy = nest_rhino_lib.part_preorient.BuildToXy(
+                    nest_geo, nest_sheets, out _preOrientedGroups, rotationSteps);
+            }
+            else
+            {
+                to_xy = nest_rhino_lib.part_preorient.PlainToXy(nest_geo);
+            }
 
             // flatten parts: one solver part per copy, OUTER ring. In FILL-HOLES mode each part's interior
             // holes (boundary_sorted[i][1..], same to_xy frame as the outer) are ALSO sent so other parts
