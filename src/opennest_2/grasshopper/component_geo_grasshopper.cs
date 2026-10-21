@@ -53,7 +53,7 @@ namespace opennest_2
         {
 
             pManager.AddGeometryParameter( "Outlines", "Outlines", "Closed curves OR planar surfaces (cast per type internally).\nIf geometries have holes, create a data-tree first. \nPlace each element into indivdual branch. \nOtherwise the algoritm will try to order polylines by checking possible holes.", GH_ParamAccess.tree);
-            pManager.AddNumberParameter("Simplify", "Simplify", "segment divisions \n0 = KEEP ALL vertices (no simplification - best for nesting fine outlines) \nx>0 divides by distance \nx<0 max 3 points per sub-segment (merges colinear within 10deg)", GH_ParamAccess.item,  -100);
+            pManager.AddNumberParameter("Simplify", "Simplify", "segment divisions \n0 = KEEP ALL vertices (no simplification - best for nesting fine outlines) \nx>0 divides curved segments every x units (no cap on the point count) \nx<0 max 3 points per sub-segment (merges colinear within 10deg)", GH_ParamAccess.item,  -100);
             pManager.AddBooleanParameter("Hull", "Hull", "Replace each outline with its convex hull", GH_ParamAccess.item, false );
             pManager.AddIntegerParameter("Copies", "Copies", "Number of copies per part", GH_ParamAccess.list);
             pManager.AddNumberParameter("Offset", "Offset", "Clearance offset for NESTING only (model units; 0 = OFF, fast).\nParts: outer grows / holes shrink so placed parts keep this gap.\nThe ORIGINAL curves are still what get placed/output.", GH_ParamAccess.item, 0);

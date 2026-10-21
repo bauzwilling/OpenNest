@@ -54,7 +54,7 @@ namespace opennest_2
         {
 
             pManager.AddBrepParameter( "Surfaces", "Surfaces", "Planar boundary surfaces.\n If you want to nest multiple sheets partition surfaces into the data-tree.", GH_ParamAccess.list);
-            pManager.AddNumberParameter("Simplify", "Simplify", "segment divisions \n0 takes only ends \nx>0 divides by distance \nx<0 max 3 points per sub-segment)", GH_ParamAccess.item,  -100);
+            pManager.AddNumberParameter("Simplify", "Simplify", "segment divisions \n0 takes only ends \nx>0 divides curved segments every x units (no cap on the point count) \nx<0 max 3 points per sub-segment)", GH_ParamAccess.item,  -100);
             pManager.AddBooleanParameter("Hull", "Hull", "Use the convex hull of each simplified outline.", GH_ParamAccess.item, false );
             pManager.AddIntegerParameter("Copies", "Copies", "Number of copies per part.", GH_ParamAccess.list);
             pManager.AddNumberParameter("Offset", "Offset", "Clearance offset for NESTING only (model units; 0 = OFF, fast).\nParts: outer grows / holes shrink so placed parts keep this gap.\nThe ORIGINAL curves are still what get placed/output.", GH_ParamAccess.item, 0);

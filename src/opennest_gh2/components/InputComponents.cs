@@ -100,7 +100,7 @@ namespace opennest_gh2.components
         protected override void AddInputs(InputAdder inputs)
         {
             inputs.AddGeneric("Surfaces", "S", "Planar surfaces/breps (holes auto-detected); one part each.", Access.Tree);
-            inputs.AddNumber("Simplify", "Sm", "0 = keep all vertices (nest the ORIGINAL shape, default); x>0 divide by distance; x<0 merge near-colinear.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
+            inputs.AddNumber("Simplify", "Sm", "0 = keep all vertices (nest the ORIGINAL shape, default); x>0 divide curved segments every x units (no cap on the point count); x<0 merge near-colinear.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
             inputs.AddBoolean("Hull", "H", "Convex hull each part.", Access.Tree, Requirement.MayBeMissing).Set(false);
             inputs.AddInteger("Copies", "C", "Copies per part.", Access.Tree, Requirement.MayBeMissing).Set(1);
             inputs.AddNumber("Offset", "O", "Nesting clearance (model units; 0 = off). Outer grows / holes shrink so placed parts keep this gap — the ORIGINAL curves are still what get placed/output.", Access.Tree, Requirement.MayBeMissing).Set(0.0);

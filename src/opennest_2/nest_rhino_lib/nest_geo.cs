@@ -274,6 +274,16 @@ namespace nest_rhino_lib
             return polyline;
         }
 
+        // Simplify > 0: one division per `distance` of curve length, floored at `min`. There is deliberately NO
+        // upper cap (it used to be clamped to 8..30 per segment), so the vertex count follows the distance: a small
+        // distance on a long curve gives proportionally many vertices (tighter fit, slower nesting).
+        private static int division_count(double length, double distance, int min)
+        {
+            double n = length / Math.Abs(distance);
+            if (double.IsNaN(n) || double.IsInfinity(n)) return min;
+            return Math.Max(min, (int)Math.Min(n, int.MaxValue));
+        }
+
         public Polyline curve_to_polyline_unfillet(Curve curve, double segment_division_length = 0, bool hull = false)
         {
             Point3d[] point3dArray = null;
@@ -305,7 +315,7 @@ namespace nest_rhino_lib
                         }
                         if (!segments[i].IsLinear(modelAbsoluteTolerance))
                         {
-                            segments[i].DivideByCount(Math.Min(15, Math.Max(2, (int)(segments[i].GetLength() / Math.Abs(segment_division_length)))), false, out point3dArray1);
+                            segments[i].DivideByCount(division_count(segments[i].GetLength(), segment_division_length, 2), false, out point3dArray1);
                             polyline.AddRange(point3dArray1);
                         }
                         polyline.Add(segments[i].PointAtEnd);
@@ -325,7 +335,7 @@ namespace nest_rhino_lib
 
                             if (segment_division_length != 0)
                             {
-                                int divisions = Math.Min(20, Math.Max(2, (int)Math.Floor(curve2.GetLength() / segment_division_length)));
+                                int divisions = division_count(curve2.GetLength(), segment_division_length, 2);
                                 curve2.DivideByCount(divisions, true, out Point3d[] division_points);
                                 polyline.AddRange(division_points);
                             }
@@ -371,7 +381,7 @@ namespace nest_rhino_lib
                         }
                         if (!segments[i].IsLinear(modelAbsoluteTolerance))
                         {
-                            segments[i].DivideByCount(Math.Min(8, Math.Max(3, (int)(segments[i].GetLength() / Math.Abs(segment_division_length)))), false, out point3dArray2);
+                            segments[i].DivideByCount(division_count(segments[i].GetLength(), segment_division_length, 3), false, out point3dArray2);
                             polyline.AddRange(point3dArray2);
                         }
                         polyline.Add(segments[i].PointAtEnd);
@@ -387,7 +397,7 @@ namespace nest_rhino_lib
             }
             else
             {
-                curve.DivideByCount(Math.Min(30, Math.Max(3, (int)(curve.GetLength() / Math.Abs(segment_division_length)))), true, out point3dArray);
+                curve.DivideByCount(division_count(curve.GetLength(), segment_division_length, 3), true, out point3dArray);
                 polyline.AddRange(point3dArray);
                 if (polyline.Last().DistanceToSquared(polyline[0]) > 0.0001)
                 {
@@ -399,7 +409,7 @@ namespace nest_rhino_lib
             if ((!polyline.IsValid ? true : polyline.Count() == 2))
             {
                 polyline.Clear();
-                curve.DivideByCount(Math.Min(8, Math.Max(4, (int)(curve.GetLength() / Math.Abs(segment_division_length * 0.5)))), true, out point3dArray3);
+                curve.DivideByCount(division_count(curve.GetLength(), segment_division_length * 0.5, 4), true, out point3dArray3);
                 polyline.AddRange(point3dArray3);
                 if (polyline.Last().DistanceToSquared(polyline[0]) > 0.0001)
                 {

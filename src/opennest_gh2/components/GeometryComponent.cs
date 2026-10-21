@@ -33,7 +33,7 @@ namespace opennest_gh2.components
             // are nested at full detail. The placed/output geometry is ALWAYS the original curve — Simplify and
             // Offset only affect the internal NFP collision boundary, never the shape that gets placed/output.
             inputs.AddCurve("Parts", "P", "Closed part curves. Flat list = each curve a part (holes auto-detected); data tree = one branch per part.", Access.Tree);
-            inputs.AddNumber("Simplify", "S", "0 = keep all vertices (nest the ORIGINAL shape, default); x>0 divide by distance; x<0 merge near-colinear.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
+            inputs.AddNumber("Simplify", "S", "0 = keep all vertices (nest the ORIGINAL shape, default); x>0 divide curved segments every x units (no cap on the point count); x<0 merge near-colinear.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
             inputs.AddBoolean("Hull", "H", "Replace each part's NESTING boundary with its convex hull.", Access.Tree, Requirement.MayBeMissing).Set(false);
             inputs.AddInteger("Copies", "C", "Copies per part (one value, or one per part).", Access.Tree, Requirement.MayBeMissing).Set(1);
             inputs.AddNumber("Offset", "O", "Nesting clearance (model units; 0 = off). Outer grows / holes shrink so placed parts keep this gap — the ORIGINAL curves are still what get placed/output.", Access.Tree, Requirement.MayBeMissing).Set(0.0);

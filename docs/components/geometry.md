@@ -21,7 +21,7 @@ Prepares parts for nesting: separates outlines (with holes) from attached attrib
 | Parameter | Type | Access | Description |
 | --- | --- | --- | --- |
 | **Outlines** | Geometry | tree | Closed curves OR planar surfaces (cast per type internally).<br>If geometries have holes, create a data-tree first. <br>Place each element into indivdual branch. <br>Otherwise the algoritm will try to order polylines by checking possible holes. |
-| **Simplify** | Number | item | segment divisions <br>0 = KEEP ALL vertices (no simplification - best for nesting fine outlines) <br>x>0 divides by distance <br>x<0 max 3 points per sub-segment (merges colinear within 10deg) _Default: -100._ |
+| **Simplify** | Number | item | segment divisions <br>0 = KEEP ALL vertices (no simplification - best for nesting fine outlines) <br>x>0 divides curved segments every x units: one point per x of curve length, with no upper cap (smaller x = more vertices, tighter fit, slower nesting) <br>x<0 max 3 points per sub-segment (merges colinear within 10deg) _Default: -100._ |
 | **Hull** | Boolean | item | Replace each outline with its convex hull _Default: false._ |
 | **Copies** | Integer | list | Number of copies per part |
 | **Offset** | Number | item | Clearance offset for NESTING only (model units; 0 = OFF, fast).<br>Parts: outer grows / holes shrink so placed parts keep this gap.<br>The ORIGINAL curves are still what get placed/output. _Default: 0._ |
