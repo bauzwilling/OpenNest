@@ -45,15 +45,26 @@ if ($LASTEXITCODE -ne 0) { throw "gh is not authenticated. Run: gh auth login" }
 
 if (-not $Notes) { $Notes = "DataB_OpenNest $verFull (Windows, Rhino 8)." }
 
+# --- the commit to tag: this checkout's HEAD (it must already be pushed, so GitHub can tag it) ---
+# Without --target, gh tags the repo's DEFAULT branch, not the commit the package was built from.
+$sha = (git rev-parse HEAD).Trim()
+if (-not (git branch -r --contains $sha)) {
+    throw "HEAD ($($sha.Substring(0,7))) is not on any remote branch. Push it first, e.g.  git push"
+}
+
 # --- create the release if the tag doesn't already exist, else just upload the asset ---
 gh release view $tag 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "==> Creating release $tag" -ForegroundColor Cyan
-    $args = @("release","create",$tag,$yakFile,"--title",$tag,"--notes",$Notes)
+    Write-Host "==> Creating release $tag at $($sha.Substring(0,7))" -ForegroundColor Cyan
+    $args = @("release","create",$tag,$yakFile,"--title",$tag,"--notes",$Notes,"--target",$sha)
     if ($Draft) { $args += "--draft" }
     gh @args
 } else {
     Write-Host "==> Release $tag exists; uploading asset (--clobber)" -ForegroundColor Yellow
+    $tagSha = (gh api "repos/{owner}/{repo}/commits/$tag" --jq .sha 2>$null)
+    if ($tagSha -and $tagSha.Trim() -ne $sha) {
+        Write-Host "    note: tag $tag points at $($tagSha.Trim().Substring(0,7)), not HEAD $($sha.Substring(0,7)); the tag is left as is" -ForegroundColor Yellow
+    }
     gh release upload $tag $yakFile --clobber
 }
 if ($LASTEXITCODE -ne 0) { throw "gh release failed" }

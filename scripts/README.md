@@ -74,9 +74,13 @@ pwsh scripts/release_github.ps1 -Notes "message"  # custom release notes
 
 Behaviour:
 
-- If the tag **doesn't exist**, it creates the release (tag = `v<version>`, e.g. `v2.89.2.0`) from the
-  current commit and attaches the `.yak`.
-- If the tag **already exists**, it re-uploads the asset with `--clobber` (replaces the old file).
+- If the tag **doesn't exist**, it creates the release (tag = `v<version>`, e.g. `v2.89.2.0`) on the
+  current commit (`HEAD`, passed to `gh` as `--target`) and attaches the `.yak`. **Push `HEAD` first** — the
+  script stops if the commit isn't on a remote branch, since GitHub can only tag a commit it has. (Before this
+  check, `gh` silently tagged the default branch instead, which is why `v2.89.3.0`–`v2.89.5.0` point at an
+  old `main` commit.)
+- If the tag **already exists**, it re-uploads the asset with `--clobber` (replaces the old file). The tag is
+  not moved; the script warns if it points at a different commit than `HEAD`.
 - **Bump the version in `manifest.yml` and rebuild before each new release** — a fresh version means a
   fresh tag. (Re-running on the same version just overwrites the existing release's asset.)
 
