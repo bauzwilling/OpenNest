@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Grasshopper2.Data;
 using Grasshopper2.UI.Icon;
@@ -51,6 +52,20 @@ namespace opennest_gh2.components
             if (t != null) foreach (var v in t.AllItems) list.Add(v);
             if (list.Count == 0) list.Add(fallback);
             return list;
+        }
+
+        // Geometry components: the Simplify input's optional 2nd value is the mode — [x, 1] = Max deviation
+        // (nest_geo_util.SIMPLIFY_MODE_MAX_DEVIATION), otherwise distance. GH2 has no overridable component context
+        // menu in this SDK, so the mode rides on the input instead of a right-click toggle (GH1 uses the toggle).
+        public static double SimplifyMode(Tree<double> simplify)
+        {
+            int k = 0;
+            if (simplify != null)
+                foreach (var v in simplify.AllItems)
+                    if (k++ == 1) return Math.Round(v) == nest_rhino_lib.nest_geo_util.SIMPLIFY_MODE_MAX_DEVIATION
+                        ? nest_rhino_lib.nest_geo_util.SIMPLIFY_MODE_MAX_DEVIATION
+                        : nest_rhino_lib.nest_geo_util.SIMPLIFY_MODE_DISTANCE;
+            return nest_rhino_lib.nest_geo_util.SIMPLIFY_MODE_DISTANCE;
         }
     }
 

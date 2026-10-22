@@ -27,7 +27,7 @@ namespace opennest_gh2.components
             // ALL inputs whole-TREE so nothing drives per-branch iteration: builds exactly ONE nest_geo.
             inputs.AddText("Layer", "L", "Boundary layer name in Rhino.", Access.Tree, Requirement.MayBeMissing).Set("");
             inputs.AddInteger("Copies", "C", "Copies per part (one value, or one per part).", Access.Tree, Requirement.MayBeMissing).Set(1);
-            inputs.AddNumber("Simplify", "S", "Simplify params: [divisions, hull 0/1]. 0 = keep polyline vertices (no simplification, default).", Access.Tree, Requirement.MayBeMissing).Set(0.0);
+            inputs.AddNumber("Simplify", "S", "Simplify params: [divisions, hull 0/1, mode]. 0 = keep polyline vertices (no simplification, default). mode 1 = Max deviation: divisions x>0 becomes the maximum deviation from the original and the nesting outline CONTAINS the part.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
             inputs.AddNumber("Sort", "So", "Sort polylines (0 = off).", Access.Tree, Requirement.MayBeMissing).Set(1.0);
             inputs.AddNumber("Offset", "O", "Nesting clearance offset (0 = off).", Access.Tree, Requirement.MayBeMissing).Set(0.0);
             inputs.AddInteger("Rotations", "R",

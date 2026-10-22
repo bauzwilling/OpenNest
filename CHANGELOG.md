@@ -8,6 +8,10 @@ GitHub Releases. Each entry describes what the release actually changed.
 > the previous tag), so a clear commit subject per push becomes the changelog line — refine an entry
 > here anytime if you want more detail.
 
+## [2.89.7.0] - 2026-10-22
+- geometry: new Simplify "Max deviation" mode (GH1: right-click toggle on Geometry / Geometry (Surfaces); GH2: Simplify `[ε, 1]`; Geometry (Rhino): `[ε, hull, 1]`) — Simplify x>0 becomes the maximum deviation ε and the nesting outline CONTAINS the part (outers never smaller, holes never larger), so simplifying can't cause an overlap; tangent vertices on convex arcs/curves, chords on concave ones, closed-form arc division, freeform refinement, ε-bounded merging that never moves the outline into the material, and Hull (outer loops only) taken from the containing outline
+- docs: document the Max deviation mode on the Geometry pages; mark phases 1–2 of `plans/simplify_max_deviation.md` as done
+
 ## [2.89.6.0] - 2026-10-22
 - geometry: Simplify > 0 now divides curved segments strictly by distance, with no upper cap on the point count (it was clamped to 8–30 points per segment)
 - geometry: curves with only 1–3 segments (triangles, D-shapes) are divided per segment, so their corners are kept instead of being cut by an even division of the whole curve

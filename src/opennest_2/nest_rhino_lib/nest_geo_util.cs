@@ -23,6 +23,10 @@ namespace nest_rhino_lib
             // Defensive defaults: callers should pass >=2 simplify params, but don't crash if not.
             double sp0 = (simplify_parameters != null && simplify_parameters.Count > 0) ? simplify_parameters[0] : -100;
             bool   sp1 = (simplify_parameters != null && simplify_parameters.Count > 1) && simplify_parameters[1] > 0;
+            // Max-deviation mode: group on the plain outlines, then rebuild containing polygons (contain_simplify).
+            bool   maxDev = is_max_deviation(simplify_parameters, sp0);
+            double groupSp0 = maxDev ? 0 : sp0;
+            bool   groupHull = !maxDev && sp1;
 
             // Count how many copies there is.
             List<int> number_of_copies = new List<int>();
@@ -73,7 +77,7 @@ namespace nest_rhino_lib
                 // Ordered input is locally cleaned up.
                 if (hard_coded_input)
                 {
-                    nestGeo.hard_coded_input(ids, sp0, sp1);
+                    nestGeo.hard_coded_input(ids, groupSp0, groupHull);
 
                     var text = new TextEntity();
                     text.PlainText = number_of_copies[i].ToString();
@@ -86,7 +90,9 @@ namespace nest_rhino_lib
 
             // Unordered input is ordered at the end.
             if (!hard_coded_input)
-                nestGeo.identify_groups(sp0, sp1);
+                nestGeo.identify_groups(groupSp0, groupHull);
+            if (maxDev)
+                nestGeo.contain_simplify(sp0, sp1);
 
             // A part's attribute geometry is stored on EVERY one of its boundary-curve indices (outer +
             // holes), and every consumer iterates ALL indices in a placed group -> without this, a part with
@@ -159,8 +165,19 @@ namespace nest_rhino_lib
             // that threw "Index out of range" when only a single Simplify value was wired.
             double sp0 = (simplify_parameters != null && simplify_parameters.Count > 0) ? simplify_parameters[0] : 100;
             bool   sp1 = (simplify_parameters != null && simplify_parameters.Count > 1) && simplify_parameters[1] > 0;
-            nestGeo.identify_groups(sp0, sp1);
+            bool   maxDev = is_max_deviation(simplify_parameters, sp0);
+            nestGeo.identify_groups(maxDev ? 0 : sp0, !maxDev && sp1);
+            if (maxDev)
+                nestGeo.contain_simplify(sp0, sp1);
             return nestGeo;
         }
+
+        // simplify_parameters = [value, hull 0/1, mode]. mode 1 = "Max deviation": value > 0 is the maximum deviation
+        // eps and the nesting outline CONTAINS the original (nest_geo.contain_simplify). Absent / 0 = distance mode.
+        public const int SIMPLIFY_MODE_DISTANCE = 0;
+        public const int SIMPLIFY_MODE_MAX_DEVIATION = 1;
+        private static bool is_max_deviation(List<double> simplify_parameters, double value)
+            => value > 0 && simplify_parameters != null && simplify_parameters.Count > 2
+               && (int)Math.Round(simplify_parameters[2]) == SIMPLIFY_MODE_MAX_DEVIATION;
     }
 }

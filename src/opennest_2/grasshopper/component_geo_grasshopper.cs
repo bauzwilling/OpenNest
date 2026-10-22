@@ -53,7 +53,7 @@ namespace opennest_2
         {
 
             pManager.AddGeometryParameter( "Outlines", "Outlines", "Closed curves OR planar surfaces (cast per type internally).\nIf geometries have holes, create a data-tree first. \nPlace each element into indivdual branch. \nOtherwise the algoritm will try to order polylines by checking possible holes.", GH_ParamAccess.tree);
-            pManager.AddNumberParameter("Simplify", "Simplify", "segment divisions \n0 = KEEP ALL vertices (no simplification - best for nesting fine outlines) \nx>0 divides curved segments every x units (no cap on the point count) \nx<0 max 3 points per sub-segment (merges colinear within 10deg)", GH_ParamAccess.item,  -100);
+            pManager.AddNumberParameter("Simplify", "Simplify", "segment divisions \n0 = KEEP ALL vertices (no simplification - best for nesting fine outlines) \nx>0 divides curved segments every x units (no cap on the point count) \nx<0 max 3 points per sub-segment (merges colinear within 10deg)\nRight-click > 'Simplify: Max deviation': x>0 becomes the maximum deviation from the original, and the nesting outline then CONTAINS the part (no overlap from simplifying)", GH_ParamAccess.item,  -100);
             pManager.AddBooleanParameter("Hull", "Hull", "Replace each outline with its convex hull", GH_ParamAccess.item, false );
             pManager.AddIntegerParameter("Copies", "Copies", "Number of copies per part", GH_ParamAccess.list);
             pManager.AddNumberParameter("Offset", "Offset", "Clearance offset for NESTING only (model units; 0 = OFF, fast).\nParts: outer grows / holes shrink so placed parts keep this gap.\nThe ORIGINAL curves are still what get placed/output.", GH_ParamAccess.item, 0);
@@ -161,6 +161,8 @@ namespace opennest_2
                 simplify_parameters.Add(1);
             else
                 simplify_parameters.Add(0);
+            simplify_parameters.Add(simplify_max_deviation ? 1 : 0);   // mode: right-click toggle
+            Message = simplify_max_deviation ? simplify_mode_menu.MESSAGE : null;
 
             var copies = new List<int>();
             DA.GetDataList(3, copies);
@@ -349,6 +351,28 @@ namespace opennest_2
         protected override System.Drawing.Bitmap Icon => Properties.Resources.element;
 
         public override Guid ComponentGuid => new Guid("D5A8325A-5BF3-45A2-1C32-1A54A0D1A10E");
+
+        // ---- Simplify mode (right-click toggle, saved with the component) ----
+        private bool simplify_max_deviation = false;
+
+        protected override void AppendAdditionalComponentMenuItems(System.Windows.Forms.ToolStripDropDown menu)
+        {
+            base.AppendAdditionalComponentMenuItems(menu);
+            simplify_mode_menu.Append(this, menu, simplify_max_deviation, v => simplify_max_deviation = v);
+        }
+
+        public override bool Write(GH_IO.Serialization.GH_IWriter writer)
+        {
+            writer.SetBoolean(simplify_mode_menu.KEY, simplify_max_deviation);
+            return base.Write(writer);
+        }
+
+        public override bool Read(GH_IO.Serialization.GH_IReader reader)
+        {
+            simplify_max_deviation = false;
+            reader.TryGetBoolean(simplify_mode_menu.KEY, ref simplify_max_deviation);
+            return base.Read(reader);
+        }
 
         //////////////////////////////////////////////////////////////////////////////////////////ZoomableComponent
 

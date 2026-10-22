@@ -33,7 +33,7 @@ namespace opennest_gh2.components
             // are nested at full detail. The placed/output geometry is ALWAYS the original curve — Simplify and
             // Offset only affect the internal NFP collision boundary, never the shape that gets placed/output.
             inputs.AddCurve("Parts", "P", "Closed part curves. Flat list = each curve a part (holes auto-detected); data tree = one branch per part.", Access.Tree);
-            inputs.AddNumber("Simplify", "S", "0 = keep all vertices (nest the ORIGINAL shape, default); x>0 divide curved segments every x units (no cap on the point count); x<0 merge near-colinear.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
+            inputs.AddNumber("Simplify", "S", "0 = keep all vertices (nest the ORIGINAL shape, default); x>0 divide curved segments every x units (no cap on the point count); x<0 merge near-colinear.\nOptional 2nd value = mode: [x, 1] = Max deviation - x>0 becomes the maximum deviation from the original and the nesting outline CONTAINS the part (no overlap from simplifying).", Access.Tree, Requirement.MayBeMissing).Set(0.0);
             inputs.AddBoolean("Hull", "H", "Replace each part's NESTING boundary with its convex hull.", Access.Tree, Requirement.MayBeMissing).Set(false);
             inputs.AddInteger("Copies", "C", "Copies per part (one value, or one per part).", Access.Tree, Requirement.MayBeMissing).Set(1);
             inputs.AddNumber("Offset", "O", "Nesting clearance (model units; 0 = off). Outer grows / holes shrink so placed parts keep this gap — the ORIGINAL curves are still what get placed/output.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
@@ -137,7 +137,7 @@ namespace opennest_gh2.components
             // Per-part rotation overrides, cycled the same way (0 = inherit the solver setting).
             var rotationsList = new List<int>(curves.Count);
             for (int i = 0; i < curves.Count; i++) { int rv = rotVals[i % rotVals.Count]; rotationsList.Add(rv < 0 ? 0 : rv); }
-            var simp = new List<double> { simplify, hull ? 1.0 : 0.0 };
+            var simp = new List<double> { simplify, hull ? 1.0 : 0.0, NestGh2Util.SimplifyMode(simpT) };
 
             var geo = nest_geo_util.geo_to_nest_geo(curves, copiesList, simp, attrsPerPart, hard_coded_input: !flatList, rotations: rotationsList, attribute_ports: attrPortsPerPart, attribute_port_count: attrPortCount);
             if (geo.boundary_sorted == null || geo.boundary_sorted.Count == 0)

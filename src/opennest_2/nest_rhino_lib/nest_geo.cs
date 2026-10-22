@@ -880,6 +880,243 @@ namespace nest_rhino_lib
             return System.Math.Abs(a) * 0.5;
         }
 
+        // ---- "Max deviation" Simplify mode (plans/simplify_max_deviation.md, phases 1-2) ----------------------------
+        // Rebuilds every loop's NESTING polygon (Item2) from its original curve (Item4) so that
+        //   1. it CONTAINS the material (outer loops never smaller, holes never larger) -> simplification can't
+        //      cause an overlap, even at Offset 0 with Exact NFP;
+        //   2. every vertex is within `eps` of the original curve (tightness).
+        // Rule: where the outline bends AROUND the material (convex) the vertices sit on the tangents, outside the
+        // curve; where it bends away (concave) they sit ON the curve (chords). Runs after grouping (outer = j 0,
+        // holes = j > 0), like offset_nesting_boundary. Hull (outer loops only) is taken from the containing
+        // polygon, so it contains too. On any failure the loop keeps its grouping polyline (a part is never dropped).
+        public void contain_simplify(double eps, bool hull)
+        {
+            if (!(eps > 0)) return;
+            double tol = RhinoDoc.ActiveDoc.ModelAbsoluteTolerance;
+            for (int i = 0; i < this.boundary_sorted.Count; i++)
+                for (int j = 0; j < this.boundary_sorted[i].Count; j++)
+                {
+                    var tup = this.boundary_sorted[i][j];
+                    if (tup.Item4 == null) continue;
+                    Polyline pl = null;
+                    try { pl = contain_polyline(tup.Item4, eps, j > 0, tol); } catch { pl = null; }
+                    if (pl == null || pl.Count < 4) continue;
+                    if (hull && j == 0) pl = new Polyline(this.convex_hull(pl.ToList()));
+                    this.boundary_sorted[i][j] = Tuple.Create<int, Polyline, BoundingBox, Curve>(
+                        tup.Item1, pl, pl.BoundingBox, tup.Item4);
+                }
+        }
+
+        // One closed curve -> containing polygon within `eps`. isHole flips the material side. Null on failure.
+        internal static Polyline contain_polyline(Curve crv, double eps, bool isHole, double tol)
+        {
+            if (crv == null || !crv.IsClosed || !(eps > 0)) return null;
+            var plane = new Plane(new Point3d(0, 0, crv.PointAtStart.Z), Vector3d.ZAxis);
+            CurveOrientation orient = crv.ClosedCurveOrientation(plane);
+            if (orient == CurveOrientation.Undefined) return null;
+            // Material is LEFT of the travel direction for a CCW outer loop and for a CW hole.
+            bool materialLeft = isHole ? orient == CurveOrientation.Clockwise : orient == CurveOrientation.CounterClockwise;
+
+            Curve[] segments = curve_explode.GetSegments(crv, true, 1);
+            if (segments == null || segments.Length == 0) return null;
+
+            // pts[k] with dev[k] = outward deviation (from the original curve) of the edge ENDING at pts[k].
+            var pts = new List<Point3d>();
+            var dev = new List<double>();
+            double pending = 0;   // deviation of the last edge of the previous segment (it ends at this segment's start)
+            foreach (Curve s in segments)
+            {
+                pts.Add(s.PointAtStart); dev.Add(pending);
+                if (s.IsLinear(tol)) { pending = 0; continue; }
+                if (!contain_arc(s, eps, materialLeft, tol, pts, dev, out pending))
+                    contain_freeform(s, s.Domain.T0, s.Domain.T1, eps, materialLeft, pts, dev, ref pending, 0);
+            }
+            dev[0] = pending;   // the closing edge ends at the first point
+
+            // Drop exact duplicates (zero-length edges), keeping the deviation of the edge that leaves the duplicate.
+            double dupTol = tol * 1e-3;
+            for (int k = pts.Count - 1; k >= 1 && pts.Count > 3; k--)
+                if (pts[k].DistanceTo(pts[k - 1]) < dupTol)
+                {
+                    if (k + 1 < pts.Count) dev[k + 1] = Math.Max(dev[k + 1], dev[k]); else dev[0] = Math.Max(dev[0], dev[k]);
+                    pts.RemoveAt(k); dev.RemoveAt(k);
+                }
+            if (pts.Count > 3 && pts[pts.Count - 1].DistanceTo(pts[0]) < dupTol)
+            { dev[0] = Math.Max(dev[0], dev[pts.Count - 1]); pts.RemoveAt(pts.Count - 1); dev.RemoveAt(dev.Count - 1); }
+
+            contain_merge(pts, dev, eps, materialLeft);
+            if (pts.Count < 3) return null;
+            var pl = new Polyline(pts);
+            pl.Add(pts[0]);
+            return pl;
+        }
+
+        // Circular segment: closed-form vertices. Returns false (caller falls back to freeform) if it isn't a planar
+        // XY arc. Convex: tangent polygon, n pieces of theta' <= 2*acos(r/(r+eps)) (and <= 90deg), vertices at
+        // r/cos(theta'/2) on the piece bisectors. Concave: chords of theta' <= 2*acos(1-eps/r), points on the arc.
+        private static bool contain_arc(Curve s, double eps, bool materialLeft, double tol,
+                                        List<Point3d> pts, List<double> dev, out double lastDev)
+        {
+            lastDev = 0;
+            if (!s.TryGetArc(out Arc arc, tol)) return false;
+            if (arc.Plane.ZAxis.IsParallelTo(Vector3d.ZAxis, 1e-6) == 0) return false;
+            double r = arc.Radius, sweep = arc.Angle;
+            if (!(r > 0) || !(sweep > 0)) return false;
+
+            Point3d p0 = s.PointAtStart;
+            Point3d c = new Point3d(arc.Center.X, arc.Center.Y, p0.Z);
+            Vector3d u = p0 - c;
+            Vector3d t0 = s.TangentAtStart;
+            bool centerLeft = Vector3d.CrossProduct(t0, u * -1).Z > 0;   // centre to the left of travel = turning left
+            double sign = centerLeft ? 1.0 : -1.0;                        // left turn = CCW about +Z
+
+            // Sanity: sweeping u by sign*sweep must land on the segment end, else treat as freeform.
+            Vector3d uEnd = u; uEnd.Rotate(sign * sweep, Vector3d.ZAxis);
+            if ((c + uEnd).DistanceTo(s.PointAtEnd) > Math.Max(tol * 10, r * 1e-6)) return false;
+
+            bool convex = centerLeft == materialLeft;   // bends around the material
+            if (convex)
+            {
+                double thMax = Math.Min(Math.PI / 2, 2 * Math.Acos(r / (r + eps)));
+                int n = Math.Max(1, (int)Math.Ceiling(sweep / thMax - 1e-9));
+                double th = sweep / n;
+                double R = r / Math.Cos(th / 2);
+                double d = R - r;
+                for (int k = 0; k < n; k++)
+                {
+                    Vector3d v = u * (R / r); v.Rotate(sign * (k + 0.5) * th, Vector3d.ZAxis);
+                    pts.Add(c + v); dev.Add(d);
+                }
+                lastDev = d;
+            }
+            else
+            {
+                double cosArg = Math.Max(-1.0, 1.0 - eps / r);
+                double thMax = Math.Min(Math.PI, 2 * Math.Acos(cosArg));
+                int n = Math.Max(1, (int)Math.Ceiling(sweep / thMax - 1e-9));
+                double th = sweep / n;
+                double d = r * (1 - Math.Cos(th / 2));   // chord sagitta (outward, away from the material)
+                for (int k = 1; k < n; k++)
+                {
+                    Vector3d v = u; v.Rotate(sign * k * th, Vector3d.ZAxis);
+                    pts.Add(c + v); dev.Add(d);
+                }
+                lastDev = d;
+            }
+            return true;
+        }
+
+        // Freeform piece [a,b]: split until it bends one way only, turns <= 90deg and is within eps. Convex pieces
+        // emit the intersection of their end tangents (a convex piece turning < 180deg lies inside the triangle
+        // start-V-end); concave pieces emit a chord. Emits the piece end too unless it is the segment end.
+        private const int CONTAIN_MAX_DEPTH = 24;
+        private static void contain_freeform(Curve s, double a, double b, double eps, bool materialLeft,
+                                             List<Point3d> pts, List<double> dev, ref double pending, int depth)
+        {
+            const int SAMPLES = 12;
+            Point3d p0 = s.PointAt(a), p1 = s.PointAt(b);
+            int bendSign = 0; bool mixed = false; double turning = 0;
+            Vector3d prevT = s.TangentAt(a);
+            for (int k = 0; k <= SAMPLES; k++)
+            {
+                double t = a + (b - a) * k / SAMPLES;
+                Vector3d tan = s.TangentAt(t);
+                Vector3d kv = s.CurvatureAt(t);
+                double z = Vector3d.CrossProduct(tan, kv).Z;
+                if (Math.Abs(z) > 1e-12)
+                {
+                    int sg = z > 0 ? 1 : -1;
+                    if (bendSign == 0) bendSign = sg; else if (sg != bendSign) mixed = true;
+                }
+                if (k > 0) turning += Vector3d.VectorAngle(prevT, tan);
+                prevT = tan;
+            }
+            bool canSplit = depth < CONTAIN_MAX_DEPTH;
+            if (canSplit && (mixed || turning > Math.PI / 2))
+            {
+                double m = 0.5 * (a + b);
+                contain_freeform(s, a, m, eps, materialLeft, pts, dev, ref pending, depth + 1);
+                contain_freeform(s, m, b, eps, materialLeft, pts, dev, ref pending, depth + 1);
+                return;
+            }
+            bool isSegmentEnd = Math.Abs(b - s.Domain.T1) < 1e-12;
+            bool convex = bendSign != 0 && (bendSign > 0) == materialLeft;
+            double d;
+            if (convex && turning > 1e-9)
+            {
+                Vector3d t0 = s.TangentAt(a), t1 = s.TangentAt(b);
+                if (!tangent_intersection(p0, t0, p1, t1, out Point3d v))
+                    v = 0.5 * (p0 + p1);   // (near-)parallel tangents: effectively straight
+                s.ClosestPoint(v, out double tc);
+                d = v.DistanceTo(s.PointAt(tc));
+                if (d > eps && canSplit)
+                {
+                    double m = 0.5 * (a + b);
+                    contain_freeform(s, a, m, eps, materialLeft, pts, dev, ref pending, depth + 1);
+                    contain_freeform(s, m, b, eps, materialLeft, pts, dev, ref pending, depth + 1);
+                    return;
+                }
+                pts.Add(v); dev.Add(d);
+            }
+            else
+            {
+                var chord = new Line(p0, p1);
+                d = 0;
+                for (int k = 1; k < SAMPLES; k++) d = Math.Max(d, chord.DistanceTo(s.PointAt(a + (b - a) * k / SAMPLES), true));
+                if (d > eps && canSplit)
+                {
+                    double m = 0.5 * (a + b);
+                    contain_freeform(s, a, m, eps, materialLeft, pts, dev, ref pending, depth + 1);
+                    contain_freeform(s, m, b, eps, materialLeft, pts, dev, ref pending, depth + 1);
+                    return;
+                }
+            }
+            if (!isSegmentEnd) { pts.Add(p1); dev.Add(d); }
+            pending = d;
+        }
+
+        // Intersection of the XY lines (p0 + s*t0) and (p1 + u*t1); false if (near-)parallel.
+        private static bool tangent_intersection(Point3d p0, Vector3d t0, Point3d p1, Vector3d t1, out Point3d v)
+        {
+            v = Point3d.Unset;
+            double den = t0.X * t1.Y - t0.Y * t1.X;
+            if (Math.Abs(den) < 1e-12) return false;
+            double dx = p1.X - p0.X, dy = p1.Y - p0.Y;
+            double sParam = (dx * t1.Y - dy * t1.X) / den;
+            v = new Point3d(p0.X + sParam * t0.X, p0.Y + sParam * t0.Y, p0.Z);
+            return true;
+        }
+
+        // Merge under the eps budget, keeping containment: a vertex may go only if removing it moves the edge AWAY
+        // from the material (a reflex vertex of the material), or it is exactly colinear, and the merged edge stays
+        // within eps: max(dev of the two edges) + distance(vertex, merged edge) <= eps. Vertices on the material
+        // side are never removed (phase 3 "push-out merge" is not implemented).
+        private static void contain_merge(List<Point3d> pts, List<double> dev, double eps, bool materialLeft)
+        {
+            for (bool changed = true; changed && pts.Count > 3;)
+            {
+                changed = false;
+                for (int i = 0; i < pts.Count && pts.Count > 3; i++)
+                {
+                    int ip = (i - 1 + pts.Count) % pts.Count, iq = (i + 1) % pts.Count;
+                    Point3d p = pts[ip], v = pts[i], q = pts[iq];
+                    double d = new Line(p, q).DistanceTo(v, true);
+                    double scale = Math.Max(p.DistanceTo(v), v.DistanceTo(q));
+                    bool colinear = d <= 1e-9 * Math.Max(1.0, scale);
+                    double cross = Vector3d.CrossProduct(v - p, q - v).Z;
+                    bool awayFromMaterial = (cross > 0) != materialLeft;
+                    double merged = Math.Max(dev[i], dev[iq]) + (colinear ? 0 : d);
+                    if (colinear || (awayFromMaterial && merged <= eps))
+                    {
+                        dev[iq] = merged;
+                        pts.RemoveAt(i); dev.RemoveAt(i);
+                        i--;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
         public void sort_groups(bool split_into_open_and_closed = true)
         {
             for (int i = 0; i < this.geometry_sorted.Count; i++)

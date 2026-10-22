@@ -100,7 +100,7 @@ namespace opennest_gh2.components
         protected override void AddInputs(InputAdder inputs)
         {
             inputs.AddGeneric("Surfaces", "S", "Planar surfaces/breps (holes auto-detected); one part each.", Access.Tree);
-            inputs.AddNumber("Simplify", "Sm", "0 = keep all vertices (nest the ORIGINAL shape, default); x>0 divide curved segments every x units (no cap on the point count); x<0 merge near-colinear.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
+            inputs.AddNumber("Simplify", "Sm", "0 = keep all vertices (nest the ORIGINAL shape, default); x>0 divide curved segments every x units (no cap on the point count); x<0 merge near-colinear.\nOptional 2nd value = mode: [x, 1] = Max deviation - x>0 becomes the maximum deviation from the original and the nesting outline CONTAINS the part (no overlap from simplifying).", Access.Tree, Requirement.MayBeMissing).Set(0.0);
             inputs.AddBoolean("Hull", "H", "Convex hull each part.", Access.Tree, Requirement.MayBeMissing).Set(false);
             inputs.AddInteger("Copies", "C", "Copies per part.", Access.Tree, Requirement.MayBeMissing).Set(1);
             inputs.AddNumber("Offset", "O", "Nesting clearance (model units; 0 = off). Outer grows / holes shrink so placed parts keep this gap — the ORIGINAL curves are still what get placed/output.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
@@ -170,7 +170,7 @@ namespace opennest_gh2.components
             for (int i = 0; i < grouped.Count; i++) { int c = copiesVals[i % copiesVals.Count]; copiesList.Add(c < 1 ? 1 : c); }
             var rotationsList = new List<int>(grouped.Count);
             for (int i = 0; i < grouped.Count; i++) { int rv = rotVals[i % rotVals.Count]; rotationsList.Add(rv < 0 ? 0 : rv); }
-            var geo = nest_geo_util.geo_to_nest_geo(grouped, copiesList, new List<double> { simplify, hull ? 1.0 : 0.0 }, attrsPerPart, hard_coded_input: true, rotations: rotationsList, attribute_ports: attrPortsPerPart, attribute_port_count: attrPortCount);
+            var geo = nest_geo_util.geo_to_nest_geo(grouped, copiesList, new List<double> { simplify, hull ? 1.0 : 0.0, NestGh2Util.SimplifyMode(sT) }, attrsPerPart, hard_coded_input: true, rotations: rotationsList, attribute_ports: attrPortsPerPart, attribute_port_count: attrPortCount);
             if (offset != 0) geo.offset_nesting_boundary(offset);   // outer grows / holes shrink on the NFP boundary only
             access.SetItem(0, geo);
             var borders = new List<Curve>();

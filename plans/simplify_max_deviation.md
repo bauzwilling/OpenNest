@@ -1,6 +1,10 @@
 # Plan: "Max deviation" Simplify mode (containing, deviation-bounded)
 
-Status: proposed, not started. Applies to the Geometry components (GH1 + GH2, Curves / Surfaces / Rhino), which all
+Status: **phases 1 and 2 implemented in 2.89.7.0** (`nest_geo.contain_simplify`); phase 3 (push-out merge of
+convex vertices) not started. Deviation from the design below: GH2 has no overridable component context menu in
+its current SDK, so in GH2 the mode is the Simplify input's 2nd value (`[eps, 1]`) instead of a right-click
+toggle; GH1 has the toggle. Geometry (Rhino) takes `[eps, hull, 1]` in both. The GH1 -> GH2 upgrader does not
+carry the toggle over. Applies to the Geometry components (GH1 + GH2, Curves / Surfaces / Rhino), which all
 build their nesting boundary through `nest_geo.curve_to_polyline_unfillet`.
 
 ## Goal
