@@ -284,8 +284,31 @@ namespace nest_rhino_lib
             return Math.Max(min, (int)Math.Min(n, int.MaxValue));
         }
 
+        // Polyline.MergeColinearSegments that never removes a vertex in `keep` (the Simplify division points). A
+        // division chord turns by only distance/radius, so on a flat arc (e.g. r=9250) an angle-based merge would
+        // silently re-cap the divisions — while plain joins (two lines meeting at ~180deg) still merge as before.
+        private static void merge_colinear_joins(Polyline pl, double angle_tolerance, HashSet<Point3d> keep)
+        {
+            bool closed = pl.Count > 2 && pl[0].DistanceToSquared(pl[pl.Count - 1]) < 1e-12;
+            if (closed) pl.RemoveAt(pl.Count - 1);
+            for (bool removed = true; removed && pl.Count > 3;)
+            {
+                removed = false;
+                for (int i = 0; i < pl.Count && pl.Count > 3; i++)
+                {
+                    if (keep.Contains(pl[i])) continue;
+                    Vector3d a = pl[i] - pl[(i - 1 + pl.Count) % pl.Count];
+                    Vector3d b = pl[(i + 1) % pl.Count] - pl[i];
+                    if (a.IsTiny() || b.IsTiny()) continue;   // duplicates are left to CollapseShortSegments
+                    if (Vector3d.VectorAngle(a, b) < angle_tolerance) { pl.RemoveAt(i--); removed = true; }
+                }
+            }
+            if (closed) pl.Add(pl[0]);
+        }
+
         public Polyline curve_to_polyline_unfillet(Curve curve, double segment_division_length = 0, bool hull = false)
         {
+            var divided = new HashSet<Point3d>();   // points placed by the distance divisions (never merged away)
             Point3d[] point3dArray = null;
             Arc arc = new Arc();
             double num = 0;
@@ -317,6 +340,7 @@ namespace nest_rhino_lib
                         {
                             segments[i].DivideByCount(division_count(segments[i].GetLength(), segment_division_length, 2), false, out point3dArray1);
                             polyline.AddRange(point3dArray1);
+                            divided.UnionWith(point3dArray1);
                         }
                         polyline.Add(segments[i].PointAtEnd);
                     }
@@ -338,6 +362,7 @@ namespace nest_rhino_lib
                                 int divisions = division_count(curve2.GetLength(), segment_division_length, 2);
                                 curve2.DivideByCount(divisions, true, out Point3d[] division_points);
                                 polyline.AddRange(division_points);
+                                divided.UnionWith(division_points);
                             }
 
 
@@ -383,6 +408,7 @@ namespace nest_rhino_lib
                         {
                             segments[i].DivideByCount(division_count(segments[i].GetLength(), segment_division_length, 3), false, out point3dArray2);
                             polyline.AddRange(point3dArray2);
+                            divided.UnionWith(point3dArray2);
                         }
                         polyline.Add(segments[i].PointAtEnd);
                     }
@@ -395,6 +421,33 @@ namespace nest_rhino_lib
                 }
                 polyline.Add(polyline[0]);
             }
+            else if (segments.Length > 0)
+            {
+                // Fewer than 4 segments (circle, triangle, D-shape, ...): divide EACH segment by distance so every
+                // corner between segments is kept. Dividing the whole curve evenly (as before) only kept a corner
+                // when a division point happened to land on it, so triangles/D-shapes lost their corners.
+                foreach (Curve seg in segments)
+                {
+                    if (seg.IsClosed)
+                    {
+                        seg.DivideByCount(division_count(seg.GetLength(), segment_division_length, 3), true, out point3dArray);
+                        polyline.AddRange(point3dArray);
+                        divided.UnionWith(point3dArray);
+                        continue;
+                    }
+                    polyline.Add(seg.PointAtStart);
+                    if (!seg.IsLinear(modelAbsoluteTolerance))
+                    {
+                        seg.DivideByCount(division_count(seg.GetLength(), segment_division_length, 2), false, out point3dArray);
+                        polyline.AddRange(point3dArray);
+                        divided.UnionWith(point3dArray);
+                    }
+                }
+                if (polyline.Last().DistanceToSquared(polyline[0]) > 0.0001)
+                {
+                    polyline.Add(polyline[0]);
+                }
+            }
             else
             {
                 curve.DivideByCount(division_count(curve.GetLength(), segment_division_length, 3), true, out point3dArray);
@@ -404,7 +457,9 @@ namespace nest_rhino_lib
                     polyline.Add(polyline[0]);
                 }
             }
-            polyline.MergeColinearSegments(modelAngleToleranceRadians * 1.5, true);
+            // Near-colinear joins (turn < 1.5x the model angle tolerance) still merge, but the division points are
+            // kept: a plain merge capped a flat arc at ~sweep/1.5deg chords however small the Simplify distance.
+            merge_colinear_joins(polyline, modelAngleToleranceRadians * 1.5, divided);
             polyline.CollapseShortSegments(modelAbsoluteTolerance * 10);
             if ((!polyline.IsValid ? true : polyline.Count() == 2))
             {
@@ -791,7 +846,9 @@ namespace nest_rhino_lib
             }
             if (pick == null) return null;
             if (isHole ? (pickA >= srcA) : (pickA <= srcA)) return null;   // wrong direction -> keep original
-            pick.MergeColinearSegments(RhinoMath.ToRadians(1.0), true);
+            // Only TRULY colinear points: the source was already simplified/merged, and a 1deg merge here collapsed
+            // fine divisions again (a Simplify-divided r=9250 arc fell back to ~11 segments once Offset was set).
+            pick.MergeColinearSegments(RhinoMath.SqrtEpsilon, true);
             pick.CollapseShortSegments(tol);
             return pick;
         }
