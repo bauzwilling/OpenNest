@@ -8,6 +8,13 @@ GitHub Releases. Each entry describes what the release actually changed.
 > the previous tag), so a clear commit subject per push becomes the changelog line — refine an entry
 > here anytime if you want more detail.
 
+## [2.89.6.0] - 2026-10-22
+- geometry: Simplify > 0 now divides curved segments strictly by distance, with no upper cap on the point count (it was clamped to 8–30 points per segment)
+- geometry: curves with only 1–3 segments (triangles, D-shapes) are divided per segment, so their corners are kept instead of being cut by an even division of the whole curve
+- geometry: near-straight joins merge only while the merged edge stays within 10× the model tolerance (was angle-only, 1.5× the angle tolerance, which could pull long lines up to ~13 units inside the part), and Simplify division points are never merged — flat, large-radius arcs no longer collapse back to ~10 segments
+- geometry: Offset keeps every vertex of the nesting outline (only exactly colinear points are merged; a 1° merge used to undo fine Simplify divisions)
+- docs: document Simplify > 0 behaviour on the Geometry pages; add the plan for a containing, deviation-bounded Simplify mode (`plans/simplify_max_deviation.md`)
+
 ## [2.89.2.0] - 2026-07-13
 - nfp/GA: unplaced parts no longer wreck the whole nest — track total unplaced AREA as a separate lexicographic objective (fewest unplaced first, then tightest packing) instead of folding a ~1e8 penalty into the single fitness scalar, which used to blind the GA to packing quality the moment any part didn't fit; more iterations now keep improving the layout. Faithful/parity mode is byte-identical (still +2 per unplaced folded into fitness)
 - docs: add the "Building Yak packages" page to the site nav

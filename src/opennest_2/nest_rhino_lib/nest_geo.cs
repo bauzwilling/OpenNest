@@ -284,26 +284,44 @@ namespace nest_rhino_lib
             return Math.Max(min, (int)Math.Min(n, int.MaxValue));
         }
 
-        // Polyline.MergeColinearSegments that never removes a vertex in `keep` (the Simplify division points). A
-        // division chord turns by only distance/radius, so on a flat arc (e.g. r=9250) an angle-based merge would
-        // silently re-cap the divisions — while plain joins (two lines meeting at ~180deg) still merge as before.
-        private static void merge_colinear_joins(Polyline pl, double angle_tolerance, HashSet<Point3d> keep)
+        // Merge near-colinear joins, bounded by DEVIATION as well as angle. A vertex is dropped only if it turns less
+        // than `angle_tolerance` AND the merged edge stays within `max_deviation` of every original vertex it
+        // replaces. Angle alone isn't enough: two 1000-long lines meeting 1.5deg off straight would merge into a
+        // chord ~13 units inside the part. Vertices in `keep` (the Simplify division points) are never dropped —
+        // a division chord turns by only distance/radius, so an angle merge would re-cap a flat arc's divisions.
+        // The seam vertex (index 0) is always kept.
+        private static void merge_colinear_joins(Polyline pl, double angle_tolerance, double max_deviation, HashSet<Point3d> keep)
         {
             bool closed = pl.Count > 2 && pl[0].DistanceToSquared(pl[pl.Count - 1]) < 1e-12;
-            if (closed) pl.RemoveAt(pl.Count - 1);
-            for (bool removed = true; removed && pl.Count > 3;)
+            int n = closed ? pl.Count - 1 : pl.Count;
+            if (n < 4) return;
+            var src = new Point3d[n];
+            for (int i = 0; i < n; i++) src[i] = pl[i];
+
+            var kept = new List<Point3d>(n) { src[0] };
+            int anchor = 0;   // last kept vertex
+            for (int i = 1; i < n; i++)
             {
-                removed = false;
-                for (int i = 0; i < pl.Count && pl.Count > 3; i++)
+                int next = i + 1 < n ? i + 1 : (closed ? 0 : -1);
+                bool drop = next >= 0 && !keep.Contains(src[i]);
+                if (drop)
                 {
-                    if (keep.Contains(pl[i])) continue;
-                    Vector3d a = pl[i] - pl[(i - 1 + pl.Count) % pl.Count];
-                    Vector3d b = pl[(i + 1) % pl.Count] - pl[i];
-                    if (a.IsTiny() || b.IsTiny()) continue;   // duplicates are left to CollapseShortSegments
-                    if (Vector3d.VectorAngle(a, b) < angle_tolerance) { pl.RemoveAt(i--); removed = true; }
+                    Vector3d a = src[i] - src[i - 1], b = src[next] - src[i];
+                    drop = !a.IsTiny() && !b.IsTiny()   // duplicates are left to CollapseShortSegments
+                        && Vector3d.VectorAngle(a, b) < angle_tolerance;
                 }
+                if (drop)
+                {
+                    var chord = new Line(src[anchor], src[next]);
+                    for (int k = anchor + 1; k <= i && drop; k++)
+                        drop = chord.DistanceTo(src[k], true) <= max_deviation;
+                }
+                if (!drop) { kept.Add(src[i]); anchor = i; }
             }
-            if (closed) pl.Add(pl[0]);
+            if (kept.Count < 3) return;   // never collapse the loop
+            pl.Clear();
+            pl.AddRange(kept);
+            if (closed) pl.Add(kept[0]);
         }
 
         public Polyline curve_to_polyline_unfillet(Curve curve, double segment_division_length = 0, bool hull = false)
@@ -457,9 +475,9 @@ namespace nest_rhino_lib
                     polyline.Add(polyline[0]);
                 }
             }
-            // Near-colinear joins (turn < 1.5x the model angle tolerance) still merge, but the division points are
-            // kept: a plain merge capped a flat arc at ~sweep/1.5deg chords however small the Simplify distance.
-            merge_colinear_joins(polyline, modelAngleToleranceRadians * 1.5, divided);
+            // Near-colinear joins (turn < 1.5x the model angle tolerance) merge only while the merged edge stays within
+            // 10x the model tolerance (the same budget as the Curve.Simplify above); division points are always kept.
+            merge_colinear_joins(polyline, modelAngleToleranceRadians * 1.5, modelAbsoluteTolerance * 10, divided);
             polyline.CollapseShortSegments(modelAbsoluteTolerance * 10);
             if ((!polyline.IsValid ? true : polyline.Count() == 2))
             {
