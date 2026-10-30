@@ -202,12 +202,35 @@ void NestingEngine::ResponseProcessor(SheetPlacement payload) {
     ga->population[payload.index].processing = false;
     ga->population[payload.index].fitness = payload.fitness;
     ga->population[payload.index].unplacedArea = payload.unplacedArea;
+    ga->population[payload.index].totalCost = payload.totalCost;
 
-    // Keep nests[0] as the best-so-far under the lexicographic order (unplaced area, then fitness).
-    if (nests.empty() || placementLess(payload.fitness, payload.unplacedArea, nests[0].fitness, nests[0].unplacedArea)) {
+    // Keep nests[0] as the best-so-far under the lexicographic order (unplaced area, cost, fitness).
+    if (nests.empty() || placementLess(payload.fitness, payload.unplacedArea, nests[0].fitness, nests[0].unplacedArea,
+                                       payload.totalCost, nests[0].totalCost)) {
         nests.insert(nests.begin(), payload);
         if (static_cast<int>(nests.size()) > config.populationSize) {
             nests.pop_back();
+        }
+    }
+}
+
+void NestingEngine::buildSheets(const std::vector<NestItem>& parts) {
+    if (!sheetCache.empty()) return;
+    int sid = 0;
+    for (size_t i = 0; i < parts.size(); i++) {
+        if (parts[i].IsSheet) {
+            auto& poly = parts[i].Polygon;
+            for (int j = 0; j < parts[i].Quantity; j++) {
+                auto cln = std::make_shared<NFP>(cloneTree(*poly));
+                cln->Id = sid;
+                cln->source = poly->source;
+                cln->children = poly->children;   // identical for every candidate -> set once here
+                sheetCache.push_back(cln);
+                sheetIdCache.push_back(sid);
+                sheetSourceCache.push_back(static_cast<int>(i));
+                sheetChildrenCache.push_back(poly->children);
+                sid++;
+            }
         }
     }
 }
@@ -255,27 +278,12 @@ void NestingEngine::launchWorkers(const std::vector<NestItem>& parts) {
         if (p.processing) running++;
     }
 
-    // Build sheets
-    std::vector<std::shared_ptr<NFP>> sheets;
-    std::vector<int> sheetids;
-    std::vector<int> sheetsources;
-    std::vector<std::vector<std::shared_ptr<NFP>>> sheetchildren;
-    int sid = 0;
-    for (size_t i = 0; i < parts.size(); i++) {
-        if (parts[i].IsSheet) {
-            auto& poly = parts[i].Polygon;
-            for (int j = 0; j < parts[i].Quantity; j++) {
-                auto cln = std::make_shared<NFP>(cloneTree(*poly));
-                cln->Id = sid;
-                cln->source = poly->source;
-                sheets.push_back(cln);
-                sheetids.push_back(sid);
-                sheetsources.push_back(static_cast<int>(i));
-                sheetchildren.push_back(poly->children);
-                sid++;
-            }
-        }
-    }
+    // Build sheets (once per nest; see buildSheets)
+    buildSheets(parts);
+    const auto& sheets = sheetCache;
+    const auto& sheetids = sheetIdCache;
+    const auto& sheetsources = sheetSourceCache;
+    const auto& sheetchildren = sheetChildrenCache;
 
     for (size_t i = 0; i < ga->population.size(); i++) {
         if (running < 1 && !ga->population[i].processing && !ga->population[i].fitness.has_value()) {
@@ -337,28 +345,12 @@ void NestingEngine::launchWorkersParallel(const std::vector<NestItem>& parts) {
     }
     if (finished) ga->generation();
 
-    // ---- Build sheet clones ONCE; assign Id/source/children once (read-only during eval) ----
-    std::vector<std::shared_ptr<NFP>> sheets;
-    std::vector<int> sheetids;
-    std::vector<int> sheetsources;
-    std::vector<std::vector<std::shared_ptr<NFP>>> sheetchildren;
-    int sid = 0;
-    for (size_t i = 0; i < parts.size(); i++) {
-        if (parts[i].IsSheet) {
-            auto& poly = parts[i].Polygon;
-            for (int j = 0; j < parts[i].Quantity; j++) {
-                auto cln = std::make_shared<NFP>(cloneTree(*poly));
-                cln->Id = sid;
-                cln->source = poly->source;
-                cln->children = poly->children;   // identical for every candidate -> set once here
-                sheets.push_back(cln);
-                sheetids.push_back(sid);
-                sheetsources.push_back(static_cast<int>(i));
-                sheetchildren.push_back(poly->children);
-                sid++;
-            }
-        }
-    }
+    // ---- Sheet clones: built ONCE per nest; Id/source/children assigned once (read-only during eval) ----
+    buildSheets(parts);
+    const auto& sheets = sheetCache;
+    const auto& sheetids = sheetIdCache;
+    const auto& sheetsources = sheetSourceCache;
+    const auto& sheetchildren = sheetChildrenCache;
 
     // ---- Collect pending candidates and build per-candidate DataInfo with DEEP-CLONED placements ----
     // GA individuals share the same shared_ptr<NFP> objects (mutate/mate copy the vector, not the

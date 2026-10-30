@@ -1,0 +1,43 @@
+name: Native tests
+
+# Builds the native engine's tests (CMake option NFP_BUILD_TESTS) and runs them on Windows, macOS and
+# Linux. The tests call the real C entry points (nfp_nest, nfp_nest_v2), so any host that binds the
+# C ABI — the Grasshopper plugin or NestingService — relies on behavior proven here.
+
+on:
+  push:
+    branches: [main, batch_nesting]
+    paths:
+      - 'src/opennest_cpp/**'
+      - '.github/workflows/native-tests.yml'
+  pull_request:
+    paths:
+      - 'src/opennest_cpp/**'
+      - '.github/workflows/native-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cmake -S src/opennest_cpp -B src/opennest_cpp/build-tests -A x64 -DNFP_BUILD_TESTS=ON
+          else
+            cmake -S src/opennest_cpp -B src/opennest_cpp/build-tests -DCMAKE_BUILD_TYPE=Release -DNFP_BUILD_TESTS=ON
+          fi
+
+      - name: Build
+        run: cmake --build src/opennest_cpp/build-tests --config Release --target sheet_selection_tests
+
+      - name: Run
+        run: ctest --test-dir src/opennest_cpp/build-tests -C Release --output-on-failure

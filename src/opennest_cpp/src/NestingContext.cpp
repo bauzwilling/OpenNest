@@ -10,6 +10,10 @@ void NestingContext::StartNest() {
     NestingEngine::Config = config;
     Nest.ga.reset();
     Nest.nests.clear();
+    Nest.sheetCache.clear();
+    Nest.sheetIdCache.clear();
+    Nest.sheetSourceCache.clear();
+    Nest.sheetChildrenCache.clear();
     Nest.background.cacheProcess.clear();
     Nest.background.window = NfpCache();
     Nest.background.callCounter = 0;
@@ -158,7 +162,8 @@ void NestingContext::NestIterate(int max_iterations) {
 
     auto& plcpr = Nest.nests.front();
 
-    if (!hasCurrent || placementLess(plcpr.fitness, plcpr.unplacedArea, current.fitness, current.unplacedArea)) {
+    if (!hasCurrent || placementLess(plcpr.fitness, plcpr.unplacedArea, current.fitness, current.unplacedArea,
+                                         plcpr.totalCost, current.totalCost)) {
         AssignPlacement(plcpr);
     }
 
@@ -172,7 +177,8 @@ void NestingContext::NestIterateGeneration() {
     if (Nest.nests.empty()) return;
 
     auto& plcpr = Nest.nests.front();
-    if (!hasCurrent || placementLess(plcpr.fitness, plcpr.unplacedArea, current.fitness, current.unplacedArea)) {
+    if (!hasCurrent || placementLess(plcpr.fitness, plcpr.unplacedArea, current.fitness, current.unplacedArea,
+                                         plcpr.totalCost, current.totalCost)) {
         AssignPlacement(plcpr);
     }
 
@@ -353,7 +359,8 @@ NestingContext NestingContext::RunParallelSeeds(
         if (!contexts[s]->HasCurrent()) continue;
         if (!contexts[bestIdx]->HasCurrent() ||
             placementLess(contexts[s]->Current().fitness, contexts[s]->Current().unplacedArea,
-                          contexts[bestIdx]->Current().fitness, contexts[bestIdx]->Current().unplacedArea)) {
+                          contexts[bestIdx]->Current().fitness, contexts[bestIdx]->Current().unplacedArea,
+                          contexts[s]->Current().totalCost, contexts[bestIdx]->Current().totalCost)) {
             bestIdx = s;
         }
     }

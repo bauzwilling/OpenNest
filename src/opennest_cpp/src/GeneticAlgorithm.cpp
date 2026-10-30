@@ -109,7 +109,7 @@ void GeneticAlgorithm::generation() {
     std::sort(population.begin(), population.end(), [](const PopulationItem& a, const PopulationItem& b) {
         // Lexicographic: fewer unplaced (by area) first, then tighter packing. In faithful mode both
         // unplacedArea are empty so this degrades to the canonical fitness-only ordering.
-        return placementLess(a.fitness, a.unplacedArea, b.fitness, b.unplacedArea);
+        return placementLess(a.fitness, a.unplacedArea, b.fitness, b.unplacedArea, a.totalCost, b.totalCost);
     });
 
     auto pickIndex = [&](int excludeIdx) -> int {

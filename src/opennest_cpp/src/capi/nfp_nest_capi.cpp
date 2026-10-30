@@ -14,6 +14,8 @@
 #include <set>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
+#include <map>
 
 using namespace nest;
 
@@ -199,6 +201,58 @@ void updateSnapshot(const NestingContext& rc, const std::vector<int>& instancePa
     g_snap.nSheets = static_cast<int>(used.size());
 }
 
+// nfp_nest_v2 outputs: opened sheets are numbered 0..n-1 in OPENING order (the order of the winning
+// layout's sheet items), and each one's type is the source the copy was given in nfp_nest_v2.
+int readOutputsV2(const NestingContext& rc, const std::vector<int>& instancePart,
+                  double* tx, double* ty, double* angle,
+                  int* sheetId, int* partIndex, int* sheetType, int* nSheetsOut, double* fitnessOut)
+{
+    std::map<int, int> opened;   // engine sheet Id -> opening index
+    if (rc.HasCurrent()) {
+        for (auto& group : rc.Current().placements)
+            for (auto& item : group)
+                if (!opened.count(item.sheetId)) opened.emplace(item.sheetId, static_cast<int>(opened.size()));
+    }
+    int placed = 0;
+    size_t n = rc.Polygons.size();
+    for (size_t k = 0; k < n; k++) {
+        const auto& poly = rc.Polygons[k];
+        partIndex[k] = (k < instancePart.size()) ? instancePart[k] : (poly->source.value_or(-1));
+        if (poly->fitted() && poly->sheet) {
+            auto it = opened.find(poly->sheet->Id);
+            int s = it != opened.end() ? it->second : -1;
+            sheetId[k] = s;
+            if (s >= 0 && sheetType) sheetType[s] = poly->sheet->source.value_or(-1);
+            tx[k] = poly->x - poly->sheet->x;
+            ty[k] = poly->y - poly->sheet->y;
+            angle[k] = poly->Rotation;
+            placed++;
+        } else {
+            sheetId[k] = -1;
+            tx[k] = 0; ty[k] = 0; angle[k] = 0;
+        }
+    }
+    if (nSheetsOut) *nSheetsOut = static_cast<int>(opened.size());
+    if (fitnessOut) *fitnessOut = rc.HasCurrent() ? rc.Current().fitness.value_or(0.0) : 0.0;
+    return placed;
+}
+
+void resetLiveState() {
+    g_cancel = false;
+    g_progress = 0;
+    g_fitness = 0.0;
+    std::lock_guard<std::mutex> lock(g_snap.mtx);
+    g_snap.placed = 0; g_snap.nSheets = 0;
+    g_snap.tx.clear(); g_snap.ty.clear(); g_snap.angle.clear();
+    g_snap.sheetId.clear(); g_snap.partIndex.clear();
+}
+
+// The GA run shared by nfp_nest and nfp_nest_v2: solve the prepared context and hand the solved
+// (best) context to `read`, which fills the caller's output arrays.
+int runSolve(NestingContext& ctx, const NestConfig& cfg, const NfpParams* params,
+             const std::vector<int>& instancePart,
+             const std::function<int(const NestingContext&)>& read);
+
 } // namespace
 
 // ============================================================================
@@ -229,16 +283,8 @@ NFP_API int nfp_nest(
 {
     if (!params || part_count <= 0 || sheet_count <= 0) return -1;
 
-    g_cancel = false;
-    g_progress = 0;
-    g_fitness = 0.0;
-    { std::lock_guard<std::mutex> lock(g_snap.mtx);
-      g_snap.placed = 0; g_snap.nSheets = 0;
-      g_snap.tx.clear(); g_snap.ty.clear(); g_snap.angle.clear();
-      g_snap.sheetId.clear(); g_snap.partIndex.clear(); }
-
+    resetLiveState();
     NestConfig cfg = toConfig(params);
-    const int mode = params->mode;
 
     // Build inputs into a context.
     NestingContext ctx;
@@ -250,6 +296,112 @@ NFP_API int nfp_nest(
         sheet_count, sheet_vertex_counts, sheet_xy,
         sheet_hole_counts, sheet_hole_vertex_counts, sheet_hole_xy);
 
+    return runSolve(ctx, cfg, params, instancePart, [&](const NestingContext& rc) {
+        return readOutputs(rc, instancePart, out_tx, out_ty, out_angle,
+                           out_sheet_id, out_part_index, out_n_sheets, out_fitness);
+    });
+}
+
+NFP_API int nfp_nest_v2(
+    int           part_count,
+    const int*    part_vertex_counts,
+    const double* part_xy,
+    const int*    part_quantities,
+    const int*    part_rotations,
+    const int*    part_hole_counts,
+    const int*    part_hole_vertex_counts,
+    const double* part_hole_xy,
+    int           sheet_type_count,
+    const int*    sheet_vertex_counts,
+    const double* sheet_xy,
+    const int*    sheet_hole_counts,
+    const int*    sheet_hole_vertex_counts,
+    const double* sheet_hole_xy,
+    const int*    sheet_quantities,
+    const double* sheet_prices,
+    int           sheet_selection,
+    const NfpParams* params,
+    double*       out_tx,
+    double*       out_ty,
+    double*       out_angle,
+    int*          out_sheet_id,
+    int*          out_part_index,
+    int*          out_sheet_type,
+    int*          out_n_sheets,
+    double*       out_fitness)
+{
+    if (!params || part_count <= 0 || sheet_type_count <= 0 || !sheet_vertex_counts || !sheet_xy ||
+        !sheet_quantities) return -1;
+    if (sheet_selection < 0 || sheet_selection > 2) return NFP_ERR_INVALID_SELECTION;
+    for (int t = 0; t < sheet_type_count; t++)
+        if (sheet_quantities[t] == 0 || sheet_quantities[t] < -1) return NFP_ERR_INVALID_QUANTITY;
+    if (sheet_selection == 2) {
+        if (!sheet_prices) return NFP_ERR_INVALID_PRICE;
+        for (int t = 0; t < sheet_type_count; t++)
+            if (!(sheet_prices[t] > 0)) return NFP_ERR_INVALID_PRICE;
+    }
+
+    resetLiveState();
+    NestConfig cfg = toConfig(params);
+    cfg.sheetSelection = sheet_selection;
+    if (sheet_prices) cfg.sheetPrices.assign(sheet_prices, sheet_prices + sheet_type_count);
+
+    // Expand each type into copies listed together: an unlimited type gets one copy per part instance
+    // (more can never be opened), a limited one min(N, instances). Every copy of type t has source t, so
+    // the engine groups them as one sheet item (shared inner-fit cache) and the opened sheet's type is
+    // its source.
+    long long instances = 0;
+    for (int i = 0; i < part_count; i++)
+        instances += (part_quantities && part_quantities[i] > 0) ? part_quantities[i] : 1;
+    std::vector<int> svc, shc, shvc, copyType;
+    std::vector<double> sxy, shxy;
+    size_t xyCur = 0, holeIdx = 0, holeXy = 0;
+    for (int t = 0; t < sheet_type_count; t++) {
+        int nv = sheet_vertex_counts[t];
+        int nh = sheet_hole_counts ? sheet_hole_counts[t] : 0;
+        std::vector<int> hvc(sheet_hole_vertex_counts ? sheet_hole_vertex_counts + holeIdx : nullptr,
+                             sheet_hole_vertex_counts ? sheet_hole_vertex_counts + holeIdx + nh : nullptr);
+        size_t holeLen = 0;
+        for (int hv : hvc) holeLen += static_cast<size_t>(hv) * 2;
+
+        long long copies = sheet_quantities[t] < 0 ? instances
+                                                   : std::min<long long>(sheet_quantities[t], instances);
+        for (long long c = 0; c < copies; c++) {
+            svc.push_back(nv);
+            sxy.insert(sxy.end(), sheet_xy + xyCur, sheet_xy + xyCur + static_cast<size_t>(nv) * 2);
+            shc.push_back(nh);
+            shvc.insert(shvc.end(), hvc.begin(), hvc.end());
+            if (holeLen) shxy.insert(shxy.end(), sheet_hole_xy + holeXy, sheet_hole_xy + holeXy + holeLen);
+            copyType.push_back(t);
+        }
+        xyCur += static_cast<size_t>(nv) * 2;
+        holeIdx += nh;
+        holeXy += holeLen;
+    }
+
+    NestingContext ctx;
+    ctx.config = cfg;
+    auto instancePart = buildInputs(
+        ctx, part_count, part_vertex_counts, part_xy, part_quantities,
+        part_rotations,
+        part_hole_counts, part_hole_vertex_counts, part_hole_xy,
+        static_cast<int>(svc.size()), svc.data(), sxy.data(),
+        shc.data(), shvc.data(), shxy.data());
+    for (size_t k = 0; k < ctx.Sheets.size(); k++) ctx.Sheets[k]->source = copyType[k];
+
+    return runSolve(ctx, cfg, params, instancePart, [&](const NestingContext& rc) {
+        return readOutputsV2(rc, instancePart, out_tx, out_ty, out_angle,
+                             out_sheet_id, out_part_index, out_sheet_type, out_n_sheets, out_fitness);
+    });
+}
+
+namespace {
+
+int runSolve(NestingContext& ctx, const NestConfig& cfg, const NfpParams* params,
+             const std::vector<int>& instancePart,
+             const std::function<int(const NestingContext&)>& read)
+{
+    const int mode = params->mode;
     const long pop  = std::max(1, cfg.populationSize);
     const long gens = std::max(1, params->generations);
     const long totalSteps = gens * pop;
@@ -266,8 +418,7 @@ NFP_API int nfp_nest(
                 if (c.HasCurrent()) g_fitness = c.Current().fitness.value_or(0.0);
             });
         updateSnapshot(best, instancePart);
-        return readOutputs(best, instancePart, out_tx, out_ty, out_angle,
-                           out_sheet_id, out_part_index, out_n_sheets, out_fitness);
+        return read(best);
     }
 
     // Faithful (0) / default (1): sequential GA loop with a SHARED NFP cache. One candidate per step;
@@ -324,9 +475,10 @@ NFP_API int nfp_nest(
             ctx.Nest.background.callCounter.load(), genParallel ? "gen-parallel" : "serial");
     }
 
-    return readOutputs(ctx, instancePart, out_tx, out_ty, out_angle,
-                       out_sheet_id, out_part_index, out_n_sheets, out_fitness);
+    return read(ctx);
 }
+
+} // namespace
 
 NFP_API int nfp_pack(
     int           part_count,

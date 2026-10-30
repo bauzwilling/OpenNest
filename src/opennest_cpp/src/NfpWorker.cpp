@@ -6,6 +6,7 @@
 #include <thread>
 #include <atomic>
 #include <unordered_set>
+#include <algorithm>
 
 namespace nest {
 
@@ -959,16 +960,19 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
     int totalPlaced = 0;
     int totalParts = static_cast<int>(parts.size());
 
-    while (!parts.empty()) {
+    // One sheet's placement pass: place as many of `parts` (in order) as fit on `sheet`. Each placed
+    // slot of `parts` is replaced by the rotated copy that was placed; nothing else outside is touched,
+    // so sheet selection (modes 1/2) can try a candidate sheet type on a COPY of `parts`.
+    struct SheetFill {
         std::vector<std::shared_ptr<NFP>> placed;
         std::vector<PlacementItem> placements;
-
-        // open a new sheet
-        auto sheet = sheets.front();
-        sheets.erase(sheets.begin());
-        sheetarea = std::fabs(GeometryUtil::polygonArea(*sheet));
-        totalsheetarea += sheetarea;
-        fitness += config.faithful ? 1.0 : sheetarea;   // canonical C#: +1 per opened sheet
+        std::optional<double> minwidth;
+        std::optional<double> minarea;
+    };
+    auto fillSheet = [&](const std::shared_ptr<NFP>& sheet, std::vector<std::shared_ptr<NFP>>& parts) -> SheetFill {
+        int i, j, k, m, n;
+        std::vector<std::shared_ptr<NFP>> placed;
+        std::vector<PlacementItem> placements;
 
         std::unordered_map<uint64_t, ClipCacheItem> clipCache;
         Clipper2Lib::Paths64 combinedNfp;
@@ -1082,7 +1086,6 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
                 parts[i] = part;
                 placements.push_back(position);
                 placed.push_back(part);
-                totalPlaced++;
                 continue;
             }
 
@@ -1466,7 +1469,6 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
                 part = winnerPart;
                 parts[i] = winnerPart;
                 placed.push_back(part);
-                totalPlaced++;
                 placements.push_back(position);
             }
         }
@@ -1495,6 +1497,98 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
                 minarea = bounds.width * bounds.height;
             }
         }
+
+        return SheetFill{std::move(placed), std::move(placements), minwidth, minarea};
+    };
+
+    // Sheet types = distinct sheet sources in first-seen order. Copies of one type share a source and
+    // are listed together, so this is the input type order (sheetPrices is indexed by it).
+    std::vector<int> typeSources;
+    for (auto& s : sheets) {
+        int src = s->source.value_or(-1);
+        if (std::find(typeSources.begin(), typeSources.end(), src) == typeSources.end()) typeSources.push_back(src);
+    }
+    auto typeIndexOf = [&](const NFP& s) {
+        auto it = std::find(typeSources.begin(), typeSources.end(), s.source.value_or(-1));
+        return static_cast<int>(it - typeSources.begin());
+    };
+    auto priceOf = [&](const NFP& s) {
+        int t = typeIndexOf(s);
+        return t < static_cast<int>(config.sheetPrices.size()) ? config.sheetPrices[t] : 0.0;
+    };
+    const bool selecting = !config.faithful && config.sheetSelection != 0;
+    double totalCost = 0;
+
+    while (!parts.empty()) {
+        std::shared_ptr<NFP> sheet;
+        SheetFill fill;
+
+        if (!selecting) {
+            // open a new sheet
+            sheet = sheets.front();
+            sheets.erase(sheets.begin());
+            sheetarea = std::fabs(GeometryUtil::polygonArea(*sheet));
+            totalsheetarea += sheetarea;
+            fitness += config.faithful ? 1.0 : sheetarea;   // canonical C#: +1 per opened sheet
+            fill = fillSheet(sheet, parts);
+        } else {
+            // Sheet selection: fill the first remaining sheet of every type that still has stock, and
+            // open the one that serves the objective best. Lower score wins:
+            //   mode 1 (min area):  -(placed part area / sheet area)    (highest utilization)
+            //   mode 2 (min price):  sheet price / placed part area     (cheapest per unit of parts)
+            // Ties keep the smaller sheet, then the earlier type. A type that takes no part is skipped.
+            int bestIdx = -1;
+            double bestScore = 0, bestArea = 0;
+            SheetFill bestFill;
+            std::vector<std::shared_ptr<NFP>> bestParts;
+            std::vector<int> tried;
+            for (int si = 0; si < static_cast<int>(sheets.size()); si++) {
+                int src = sheets[si]->source.value_or(-1);
+                if (std::find(tried.begin(), tried.end(), src) != tried.end()) continue;
+                tried.push_back(src);
+
+                auto trialParts = parts;
+                SheetFill f = fillSheet(sheets[si], trialParts);
+                if (f.placed.empty()) continue;
+
+                double area = std::fabs(GeometryUtil::polygonArea(*sheets[si]));
+                double placedArea = 0;
+                for (auto& p : f.placed) placedArea += std::fabs(GeometryUtil::polygonArea(*p));
+                if (placedArea <= 0 || area <= 0) continue;
+                double score = config.sheetSelection == 2 ? priceOf(*sheets[si]) / placedArea
+                                                          : -(placedArea / area);
+
+                bool better = bestIdx < 0;
+                if (!better) {
+                    double tol = 1e-9 * std::max(1.0, std::max(std::fabs(score), std::fabs(bestScore)));
+                    if (score < bestScore - tol) better = true;
+                    else if (std::fabs(score - bestScore) <= tol && area < bestArea * (1 - 1e-12)) better = true;
+                }
+                if (better) {
+                    bestIdx = si;
+                    bestScore = score;
+                    bestArea = area;
+                    bestFill = std::move(f);
+                    bestParts = std::move(trialParts);
+                }
+            }
+            if (bestIdx < 0) break;   // no remaining sheet type takes any part
+
+            sheet = sheets[bestIdx];
+            sheets.erase(sheets.begin() + bestIdx);
+            parts = std::move(bestParts);
+            fill = std::move(bestFill);
+            sheetarea = bestArea;
+            totalsheetarea += sheetarea;
+            fitness += sheetarea;
+            totalCost += config.sheetSelection == 2 ? priceOf(*sheet) : sheetarea;
+        }
+
+        totalPlaced += static_cast<int>(fill.placed.size());
+        auto& placed = fill.placed;
+        auto& placements = fill.placements;
+        auto& minwidth = fill.minwidth;
+        auto& minarea = fill.minarea;
 
         if (!minwidth.has_value()) {
             // no placement
@@ -1544,6 +1638,7 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
     result.placements = {allplacements};
     result.fitness = fitness;
     result.unplacedArea = config.faithful ? std::nullopt : std::optional<double>(unplacedArea);
+    result.totalCost = selecting ? std::optional<double>(totalCost) : std::nullopt;
 
     return result;
 }

@@ -1,6 +1,6 @@
 # Sheet selection: choosing each sheet as you go
 
-**Status:** design, not implemented. Target release: **v2.89.8.0** (`batch_nesting`; this fork stays on 2.89.x, because 2.90+ is reserved for the
+**Status:** native engine implemented (`nfp_nest_v2`, tests in `src/opennest_cpp/tests`); Grasshopper and batch changes in progress. Target release: **v2.89.8.0** (`batch_nesting`; this fork stays on 2.89.x, because 2.90+ is reserved for the
 upstream OpenNest maintainer).
 **Hosts:** the Rhino/Grasshopper plugin and NestingService. Both call the same native engine, so both get
 identical behavior.
@@ -66,7 +66,7 @@ NFP_API int nfp_nest_v2(
   existing v1 callers. The new inputs are separate arguments.
 - `out_sheet_id` numbers **opened** sheets in opening order. `out_sheet_type[k]` is the type of opened sheet `k`.
   At most one sheet is opened per instance, so `instance_count` is a safe buffer length.
-- `params->maxSheets` keeps its meaning: a cap on the **total** number of opened sheets (0 = no cap).
+- `params->maxSheets` is **not used**, as in `nfp_nest` today (the engine config never reads it).
 - **Errors.** Today every invalid input returns `-1`. v2 keeps `-1` for the same invalid inputs as v1, and
   **adds named codes** to the header so hosts can report the cause:
   - `#define NFP_ERR_INVALID_PRICE -10`: mode `2` with `sheet_prices == NULL`, or any price `≤ 0`.
@@ -187,8 +187,12 @@ These changes live in NestingService, after this fork release:
 
 ## 8. Tests (fork)
 
-1. **Parity:** v1 `nfp_nest` and v2 mode 0 (one type per sheet, quantity 1) give identical outputs on the bench
-   datasets for a fixed seed.
+1. **Parity:** v1 `nfp_nest` and v2 mode 0 (one type per sheet, quantity 1) give identical outputs for a fixed
+   seed. A type with quantity N matches N identical v1 sheets exactly in faithful mode; in the default modes it
+   places as many parts on as many sheets, but the layout can differ, because the copies share one inner-fit
+   cache entry and a cached inner fit differs from a fresh one in the last floating-point digits. The v1
+   path itself is unchanged: `nfp_bench` dumps from v2.89.7.0 and from this change are identical across the
+   `concave`, `rects` and `rings` datasets, engine modes 0/1/2, serial and parallel, single- and multi-sheet.
 2. **Right-sizing the last sheet:** a big type plus a small type, with parts filling 2.2 big sheets. Mode 1 puts
    the remainder on the small type, and its total area is lower than mode 0.
 3. **Mixing:** an unlimited big type plus a limited offcut type (quantity 2) that fits the parts better. Mode 1
