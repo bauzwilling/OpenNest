@@ -77,6 +77,53 @@ NFP_API int nfp_nest(
     int*          out_n_sheets,             // single
     double*       out_fitness);             // single
 
+// Error codes of nfp_nest_v2 (in addition to -1 = invalid / missing arguments, as in nfp_nest).
+#define NFP_ERR_INVALID_PRICE     (-10)  // selection 2 without prices, or a price <= 0
+#define NFP_ERR_INVALID_QUANTITY  (-11)  // a sheet quantity of 0 or < -1
+#define NFP_ERR_INVALID_SELECTION (-12)  // sheet_selection not 0, 1 or 2
+
+// Sheet selection: like nfp_nest, but sheets are given as TYPES, and the engine chooses the type of
+// each sheet it opens (see docs/sheet_selection.md).
+//   sheet_quantities[t]: -1 = unlimited, N >= 1 = at most N sheets of type t for this solve.
+//   sheet_prices[t]:     price of ONE whole sheet of type t (scrap included); required (> 0) for
+//                        selection 2, otherwise may be NULL.
+//   sheet_selection:     0 = list order (each sheet opened in input order, types in order, as
+//                        nfp_nest), 1 = min total sheet area (open the type with the best
+//                        utilization), 2 = min total price (open the type with the lowest price per
+//                        placed part area). Ties keep the smaller sheet, then the earlier type.
+//                        Faithful mode (params->mode == 0) always uses list order.
+// Outputs per instance as nfp_nest, except out_sheet_id numbers the OPENED sheets 0..n_sheets-1 in the
+// order they were opened; out_sheet_type[s] is the type of opened sheet s (first *out_n_sheets entries
+// are valid; size it to the instance count). params->maxSheets is not used (as in nfp_nest).
+// nfp_nest(...) gives the same layout as nfp_nest_v2 with one type per sheet, quantity 1, selection 0.
+NFP_API int nfp_nest_v2(
+    int           part_count,
+    const int*    part_vertex_counts,        // [part_count]
+    const double* part_xy,                   // [sum(part_vertex_counts)*2]
+    const int*    part_quantities,           // [part_count] (>=1 each)
+    const int*    part_rotations,            // [part_count] or NULL (as nfp_nest)
+    const int*    part_hole_counts,          // [part_count]
+    const int*    part_hole_vertex_counts,   // [sum(part_hole_counts)]
+    const double* part_hole_xy,              // [sum(part_hole_vertex_counts)*2]
+    int           sheet_type_count,
+    const int*    sheet_vertex_counts,       // [sheet_type_count]
+    const double* sheet_xy,                  // [sum(sheet_vertex_counts)*2]
+    const int*    sheet_hole_counts,         // [sheet_type_count]
+    const int*    sheet_hole_vertex_counts,  // [sum(sheet_hole_counts)]
+    const double* sheet_hole_xy,             // [sum(sheet_hole_vertex_counts)*2]
+    const int*    sheet_quantities,          // [sheet_type_count] -1 = unlimited, N >= 1
+    const double* sheet_prices,              // [sheet_type_count] or NULL
+    int           sheet_selection,           // 0 = list order, 1 = min area, 2 = min price
+    const NfpParams* params,
+    double*       out_tx,                    // [instance_count]
+    double*       out_ty,                    // [instance_count]
+    double*       out_angle,                 // [instance_count] degrees
+    int*          out_sheet_id,              // [instance_count] opened sheet (-1 = unplaced)
+    int*          out_part_index,            // [instance_count] source part index
+    int*          out_sheet_type,            // [instance_count] type per opened sheet
+    int*          out_n_sheets,              // single
+    double*       out_fitness);              // single
+
 // Row-major grid layout (NO nesting; the compas_nest `pack()` semantics). Parts are
 // expanded by quantity and placed left-to-right; each cell advances by the part's own
 // bbox width + gap_x, a row's height is its tallest part + gap_y. Two wrapping modes:

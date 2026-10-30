@@ -49,6 +49,16 @@ public:
     NfpWorker background;
     std::unique_ptr<GeneticAlgorithm> ga;
     std::vector<SheetPlacement> nests;
+
+    // Sheet clones handed to every evaluation, built ONCE per nest by buildSheets(). They are read-only
+    // during placement (the serial path re-assigns Id/source/children to the same values), so rebuilding
+    // them every step only cost time, which grows with the sheet count (one copy per sheet; nfp_nest_v2
+    // expands an unlimited sheet type to one copy per part). Cleared by NestingContext::StartNest.
+    std::vector<std::shared_ptr<NFP>> sheetCache;
+    std::vector<int> sheetIdCache;
+    std::vector<int> sheetSourceCache;
+    std::vector<std::vector<std::shared_ptr<NFP>>> sheetChildrenCache;
+    void buildSheets(const std::vector<NestItem>& parts);
 };
 
 } // namespace nest

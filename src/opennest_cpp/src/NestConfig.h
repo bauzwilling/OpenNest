@@ -51,6 +51,14 @@ struct NestConfig {
     // speedup for exact mode. Result is identical to serial (cache is a pure (source,rotation) map;
     // GA trajectory depends only on fitness + RNG, not eval order).
     bool parallelPopulation = false;
+
+    // Sheet selection (nfp_nest_v2): how placeParts picks the type of each sheet it opens.
+    //   0 = list order (sheets.front(), the canonical behavior), 1 = min total sheet area
+    //   (best utilization), 2 = min total price (lowest price per placed part area).
+    // Ignored in faithful mode. sheetPrices[t] is the price of ONE whole sheet of type t, where t
+    // counts sheet types in input order (mode 2 only).
+    int sheetSelection = 0;
+    std::vector<double> sheetPrices;
 };
 
 } // namespace nest

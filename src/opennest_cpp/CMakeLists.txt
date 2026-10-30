@@ -107,3 +107,18 @@ if(NFP_BUILD_BENCH)
         target_compile_options(nfp_bench PRIVATE /W3 /wd4244 /wd4267 /wd4305)
     endif()
 endif()
+
+# --- native tests (off by default) ---
+# Same direct-compile approach as nfp_bench: exercises the real C entry points.
+option(NFP_BUILD_TESTS "Build the native engine tests" OFF)
+if(NFP_BUILD_TESTS)
+    add_executable(sheet_selection_tests tests/sheet_selection_tests.cpp src/capi/nfp_nest_capi.cpp)
+    target_link_libraries(sheet_selection_tests PRIVATE nest_lib)
+    target_include_directories(sheet_selection_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    if(MSVC)
+        target_compile_definitions(sheet_selection_tests PRIVATE _USE_MATH_DEFINES)
+        target_compile_options(sheet_selection_tests PRIVATE /W3 /wd4244 /wd4267 /wd4305)
+    endif()
+    enable_testing()
+    add_test(NAME sheet_selection_tests COMMAND sheet_selection_tests)
+endif()
