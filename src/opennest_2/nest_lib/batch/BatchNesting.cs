@@ -54,6 +54,15 @@ namespace nest_lib.batch
         BatchSolveResult SolveBatch(IReadOnlyList<int> instanceIds);
     }
 
+    // Optional engine hook for LIMITED sheet stock (docs/sheet_selection.md). The engine reserves every sheet
+    // a solve opens, so batches in one round never use more than the stock. The orchestrator hands back the
+    // not-full last sheet of a batch whenever it re-pools that sheet's parts, so a later solve can use that
+    // stock again. Sheets it keeps are never handed back.
+    public interface ISheetStockEngine
+    {
+        void ReleaseSheet(BatchSolveResult solve, int localSheet);
+    }
+
     // Splits a set of instances into batches the engine can nest well (typically <= batchSize each).
     // Registered in DistributorRegistry so the GH dropdown lists every method without per-method edits.
     public interface IPartDistributor
@@ -148,6 +157,16 @@ namespace nest_lib.batch
         }
 
         private bool Cancelled => IsCancelled != null && IsCancelled();
+
+        // Give the re-pooled last sheets of this round back to a stock-tracking engine (once per sheet).
+        private void ReleaseSheets(IEnumerable<Placement> repooled)
+        {
+            if (!(_engine is ISheetStockEngine stock)) return;
+            var seen = new HashSet<long>();
+            foreach (var pl in repooled)
+                if (seen.Add(((long)pl.Solve.SolveId << 32) | (uint)pl.LocalSheet))
+                    stock.ReleaseSheet(pl.Solve, pl.LocalSheet);
+        }
         private void Log(BatchNestPlan plan, string msg) { plan.Log.Add(msg); OnProgress?.Invoke(msg); }
 
         public BatchNestPlan Run(IReadOnlyList<PartDescriptor> parts)
@@ -236,6 +255,7 @@ namespace nest_lib.batch
                         switchedToSequential = true;
                         activeDistributor = new SequentialMergeDistributor(_distributor);
                         Log(plan, $"round {round}: nothing committed; switching to full batch_size sequential chunks");
+                        ReleaseSheets(provisional);
                         remaining = nextLeftover;
                         continue;
                     }
@@ -246,6 +266,7 @@ namespace nest_lib.batch
                     if (switchedToSequential && batches.Count > 1)
                     {
                         Log(plan, $"round {round}: still nothing committed; nesting all {nextLeftover.Count} leftover part(s) as one batch");
+                        ReleaseSheets(provisional);
                         var merged = Solve(nextLeftover);
                         if (merged == null) { plan.Unplaced.AddRange(nextLeftover); break; }
                         foreach (var id in nextLeftover)
@@ -275,10 +296,12 @@ namespace nest_lib.batch
                 if (nextLeftover.Count <= _batchSize || round >= _maxRounds)
                 {
                     Log(plan, $"round {round}: consolidating remaining {nextLeftover.Count} part(s) in a final pass");
+                    ReleaseSheets(provisional);
                     FinalPass(nextLeftover, committed, plan);
                     break;
                 }
 
+                ReleaseSheets(provisional);
                 remaining = nextLeftover;
             }
 

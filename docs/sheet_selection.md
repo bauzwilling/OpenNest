@@ -1,6 +1,7 @@
 # Sheet selection: choosing each sheet as you go
 
-**Status:** native engine implemented (`nfp_nest_v2`, tests in `src/opennest_cpp/tests`); Grasshopper and batch changes in progress. Target release: **v2.89.8.0** (`batch_nesting`; this fork stays on 2.89.x, because 2.90+ is reserved for the
+**Status:** implemented: native engine (`nfp_nest_v2`, tests in `src/opennest_cpp/tests`), Grasshopper
+(Sheets inputs, OpenNest2 / Batch option) and batch stock tracking (tests in `tests/nest_lib_batch_tests`). Target release: **v2.89.8.0** (`batch_nesting`; this fork stays on 2.89.x, because 2.90+ is reserved for the
 upstream OpenNest maintainer).
 **Hosts:** the Rhino/Grasshopper plugin and NestingService. Both call the same native engine, so both get
 identical behavior.
@@ -152,26 +153,34 @@ unchanged. Same seed and same input give the same result.
 
 ## 5. Grasshopper / Rhino
 
+**Sheet types are sheet sets.** Each input sheet set (one tree branch on Sheets, one surface on Sheets
+(surfaces)) is a type. The laid-out copies cycle through the sets, so copy `i` is type `i % setCount`.
+
 | Component | Change |
 |---|---|
-| **Sheets** (`component_sheets`, `component_sheets_surfaces`) | New optional list inputs: **Quantity** (one per sheet branch; `-1` or empty = unlimited) and **Price** (one per branch; empty = no price). `nest_sheets` keeps the **types** (outline, holes, quantity, price) alongside today's laid-out copies. |
-| **Nest** (`component_nest1` / options host) | New input **Sheet Select**: `0` order (default), `1` min area, `2` min price. Mode 2 with a missing price is a component error naming the sheet. |
-| Nest outputs | New output **Sheet Type** (per opened sheet, the type index). Output sheets are laid out per **opened** sheet with **that type's** outline. |
-| `rhino_example_cpp` | Calls `nfp_nest_v2` with types. In mode 0 with no Quantity/Price it may keep calling v1. |
+| **Sheets**, **Sheets (surfaces)** (and the Grasshopper 2 **Sheets**) | New optional list inputs **Quantity** and **Price**, one value per sheet set (the last value repeats). A negative or missing quantity = unlimited; a price is per whole sheet. Stored on `nest_sheets` (`type_quantities`, `type_prices`). Older definitions without these inputs behave as before. |
+| **OpenNest2**, **OpenNest2 Batch** (and the Grasshopper 2 **OpenNest2**) | New NestOptions row **Sheet Select**: List Order (default) · Min Area · Min Price. Min Price without a price on every set is a component error. Changing only Quantity / Price re-solves. |
+| `rhino_example_cpp` | With Sheet Select = List Order and no limited quantity it calls `nfp_nest` exactly as before. Otherwise it calls `nfp_nest_v2` with one type per set. A type may open at most as many sheets as it has laid-out copies (each opened sheet needs a slot to be drawn in); opened sheet `k` of type `t` is drawn in slot `t + k * setCount`. |
 
-The Sheets component today sorts each branch's polylines **largest first**. Mode 0 keeps that order. Modes 1
-and 2 don't depend on order, apart from breaking ties.
+Not changed: **OpenNest1** (takes raw sheet geometry, no sheet sets) and **OpenNestCollision** (different
+engine). No separate "Sheet Type" output: the existing **Sheet Id** output is the slot, and its type is
+`slot % setCount`.
+
+List Order with v2 (only when a quantity is limited) opens a set's sheets before moving to the next set,
+whereas plain v1 follows the laid-out (interleaved) order. Min Area / Min Price don't depend on order, apart
+from breaking ties.
 
 ## 6. Batch nesting (`nest_lib/batch`)
 
-`OpenNestBatchEngine` must:
-
-1. **Track stock across batches.** Today every batch starts on a fresh copy of the sheet template. With limited
-   types, it must pass each batch only what is left, deducting each sheet it keeps (not the re-pooled last
-   sheet). This is the same rule NestingService already implements (its SPEC 07 §3.5a), so both hosts stay in
-   step.
-2. **Draw each output sheet with its own type's outline,** not sheet 0's (`_sheet0` today).
-3. **Pass `sheet_selection` through** to every batch solve.
+1. **Stock across batches.** A new optional interface `ISheetStockEngine` (in `BatchNesting.cs`):
+   `OpenNestBatchEngine` reserves every sheet a solve opens, and the orchestrator calls `ReleaseSheet` for each
+   not-full last sheet whose parts it re-pools (at every re-pool point; never for sheets it keeps). Each solve
+   is offered only the stock that is left; when every type is used up the solve returns nothing, so the
+   remaining parts end unplaced. Same rule as NestingService (its SPEC 07 §3.5a).
+2. **Local sheets in opening order.** v2 slots are not in opening order, so the engine maps them back
+   (`rhino_example.OpenedSheetSlots` / `OpenedSheetTypes`); the last local sheet is the last opened one.
+3. **Each output sheet is drawn with its own type's outline** (the type's first laid-out copy), not sheet 0's.
+4. **`sheet_selection` is passed through** to every batch solve.
 
 ## 7. NestingService (host) integration
 

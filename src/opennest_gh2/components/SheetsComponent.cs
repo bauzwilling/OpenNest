@@ -30,6 +30,8 @@ namespace opennest_gh2.components
             inputs.AddInteger("Rows", "R", "Sheets per row before partitioning (0/empty = one row).", Access.Tree, Requirement.MayBeMissing);
             inputs.AddInteger("Copies", "C", "Total sheets to array from the input.", Access.Tree, Requirement.MayBeMissing).Set(100);
             inputs.AddNumber("Offset", "O", "Inward MARGIN for nesting (model units; 0 = off). Parts keep this setback from the sheet edge; any sheet holes grow by it.", Access.Tree, Requirement.MayBeMissing).Set(0.0);
+            inputs.AddNumber("Quantity", "Q", "Optional, one per sheet (branch), the last value repeats: how many of that sheet exist. Negative or empty = unlimited. A sheet is never used more often than its arrayed copies.", Access.Tree, Requirement.MayBeMissing);
+            inputs.AddNumber("Price", "$", "Optional, one per sheet (branch), the last value repeats: the price of ONE whole sheet, scrap included. Needed for the OpenNest2 option Sheet Select = Min Price.", Access.Tree, Requirement.MayBeMissing);
         }
 
         protected override void AddOutputs(OutputAdder outputs)
@@ -75,6 +77,13 @@ namespace opennest_gh2.components
             // Inward MARGIN: per sheet, the OUTER loop (index 0) shrinks and holes grow, so placed parts keep the
             // setback (GH1 parity via the public nest_sheets helper, which uses the same offset_closed_polyline).
             if (offset != 0) sheets.offset_sheet_boundary(offset);
+
+            // Sheet stock per sheet (branch): Quantity / Price (docs/sheet_selection.md).
+            var quantities = new List<double>();
+            var prices = new List<double>();
+            if (access.GetTree(5, out Tree<double> qtyT) && qtyT != null) foreach (var v in qtyT.AllItems) quantities.Add(v);
+            if (access.GetTree(6, out Tree<double> priceT) && priceT != null) foreach (var v in priceT.AllItems) prices.Add(v);
+            sheets.SetStock(quantities, prices);
 
             access.SetItem(0, sheets);
 

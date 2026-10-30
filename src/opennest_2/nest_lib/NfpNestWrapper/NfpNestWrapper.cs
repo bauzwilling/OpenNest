@@ -70,6 +70,44 @@ namespace NfpNest
             out int      out_n_sheets,
             out double   out_fitness);
 
+        // nfp_nest_v2 error codes (in addition to -1 = invalid arguments).
+        public const int NFP_ERR_INVALID_PRICE = -10;
+        public const int NFP_ERR_INVALID_QUANTITY = -11;
+        public const int NFP_ERR_INVALID_SELECTION = -12;
+
+        // Sheet selection (docs/sheet_selection.md): sheets are TYPES with a quantity (-1 = unlimited) and an
+        // optional price per whole sheet; the engine picks each opened sheet's type: 0 = list order, 1 = min
+        // total sheet area, 2 = min total price. out_sheet_id numbers OPENED sheets 0..n-1 in opening order and
+        // out_sheet_type[s] is the type of opened sheet s (buffer length = instance count).
+        [DllImport(LIBRARY_NAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int nfp_nest_v2(
+            int          part_count,
+            int[]        part_vertex_counts,
+            double[]     part_xy,
+            int[]        part_quantities,
+            int[]        part_rotations,
+            int[]        part_hole_counts,
+            int[]        part_hole_vertex_counts,
+            double[]     part_hole_xy,
+            int          sheet_type_count,
+            int[]        sheet_vertex_counts,
+            double[]     sheet_xy,
+            int[]        sheet_hole_counts,
+            int[]        sheet_hole_vertex_counts,
+            double[]     sheet_hole_xy,
+            int[]        sheet_quantities,
+            double[]     sheet_prices,       // null unless selection 2
+            int          sheet_selection,
+            ref NfpParams parameters,
+            double[]     out_tx,
+            double[]     out_ty,
+            double[]     out_angle,
+            int[]        out_sheet_id,
+            int[]        out_part_index,
+            int[]        out_sheet_type,
+            out int      out_n_sheets,
+            out double   out_fitness);
+
         // Row-major grid layout (NO nesting; compas_nest pack() semantics): array mode wraps every
         // `columns` items, distance mode (max_width > 0) wraps when the next part would exceed
         // max_width. Outputs in expansion order, angle always 0, sheet id always 0. Returns the

@@ -175,6 +175,7 @@ namespace opennest_2
                 "time 0",                         // not exposed (run_cpp uses Iterations; timeBudgetSecs = 0)
                 Tok("all_rotations", "1"),
                 Tok("fit_orientation", "1"),   // past index 8, so the positional mapping above is untouched
+                Tok("sheet_select", "0"),      // parsed by name
                 "exact_nfp 1",                    // not exposed: ALWAYS exact NFP (parts touch, no gap, no overlap)
                 Tok("font", "MecSoft_Font-1 1"),  // font row: EmitToken returns the raw token; must be LAST
             };
@@ -405,8 +406,12 @@ namespace opennest_2
                 int exactNfp = 1;   // default: exact NFP — parts touch with no gap and no overlap
                 int useHoles = 1;   // default: nest smaller parts into larger parts' holes ("element_holes")
                 int preOrient = 1;  // default: pre-orient oversized parts so they fit ("fit_orientation")
+                int sheetSelect = 0;   // "sheet_select": 0 list order, 1 min area, 2 min price
                 foreach (var line in parameters_text)
                 {
+                    var ss = line.Split(' ');
+                    if (ss.Length >= 2 && ss[0].Equals("sheet_select", StringComparison.OrdinalIgnoreCase)
+                        && int.TryParse(ss[1], out int sv)) sheetSelect = sv;
                     var t = line.Split(' ');
                     if (t.Length >= 2 && t[0].Equals("all_rotations", StringComparison.OrdinalIgnoreCase)
                         && int.TryParse(t[1], out int ar)) allRotations = ar;
@@ -420,6 +425,14 @@ namespace opennest_2
 
                 _timeoutSecs = OptNum("timeout", 0);   // 0 = no limit
 
+                if (sheetSelect == 2 && !nest_sheets.HasPriceForEveryType())
+                {
+                    AddRuntimeMessage(GH_RuntimeMessageLevel.Error, "Sheet Select = Min Price needs a Price > 0 for every sheet set (Sheets component, Price input).");
+                    ReleaseEngine();
+                    this.Message = "missing sheet prices";
+                    return;
+                }
+
                 int max_iterations = 10;
                 DA.GetData(3, ref max_iterations);   // Iterations shifted to index 3 (Options inserted at 2)
                 if (max_iterations < 1) max_iterations = 1;
@@ -430,6 +443,7 @@ namespace opennest_2
                     _pendingNest.TryAllRotations = allRotations;
                     _pendingNest.ExactNfp = exactNfp;
                     _pendingNest.UseHoles = useHoles;
+                    _pendingNest.SheetSelection = sheetSelect;
                 }
                 catch (Exception ex)
                 {
@@ -768,7 +782,9 @@ namespace opennest_2
             nest_rhino_lib.nest_sheets s = null; DA.GetData(0, ref s);
             nest_rhino_lib.nest_geo g = null; DA.GetData(1, ref g);
             int it = 10; DA.GetData(3, ref it); if (it < 1) it = 1;   // Iterations at index 3 (Options at 2)
-            _pendingSig = SigOf(s, g, it, BuildOptionStrings());
+            var sigTokens = BuildOptionStrings();
+            if (s != null) sigTokens.Add(s.StockSignature());   // re-solve when only Quantity / Price change
+            _pendingSig = SigOf(s, g, it, sigTokens);
             _pendingIter = it;
             return _pendingSig != _solvedSig;
         }

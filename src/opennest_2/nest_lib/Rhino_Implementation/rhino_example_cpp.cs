@@ -138,10 +138,16 @@ namespace nest_lib
             var sid = new int[N]; var pidx = new int[N];
             int nSheets = 0; double fitness = 0; int placed = 0;
 
-            NfpNestWrapper.nfp_cancel_reset();
-
             int[] pvcA = pvc.ToArray(), pqtyA = pqty.ToArray(), protA = prot.ToArray(), phcA = phc.ToArray(), phvcA = phvc.ToArray();
             double[] pxyA = pxy.ToArray(), phxyA = phxy.ToArray();
+
+            if (UsesSheetTypes)
+            {
+                run_cpp_v2(G, pvcA, pxyA, pqtyA, protA, phcA, phvcA, phxyA, sheetOx, sheetOy, srcOrder, instancesBySource, pr);
+                return;
+            }
+
+            NfpNestWrapper.nfp_cancel_reset();
             int[] svcA = svc.ToArray(), shcA = shc.ToArray(), shvcA = shvc.ToArray();
             double[] sxyA = sxy.ToArray(), shxyA = shxy.ToArray();
 
@@ -178,6 +184,144 @@ namespace nest_lib
 
             // Final layout.
             applyDllLayout(srcOrder, instancesBySource, sheetOx, sheetOy, tx, ty, ang, sid, pidx);
+            CurrentGeneration = (int)Math.Max(1, max_iterations);
+            CurrentFitness = fitness;
+
+            // List order opens sheets in slot order, so the used slots ascending ARE the opening order.
+            var used = new SortedSet<int>();
+            foreach (int s in sid) if (s >= 0) used.Add(s);
+            OpenedSheetSlots = new List<int>(used);
+            OpenedSheetTypes = new List<int>();
+            int types = Math.Max(1, SheetTypeCount);
+            foreach (int s in OpenedSheetSlots) OpenedSheetTypes.Add(s % types);
+        }
+
+        // True when the solve needs sheet types (nfp_nest_v2): a selection mode other than list order, or a
+        // limited quantity on any sheet set.
+        public bool UsesSheetTypes =>
+            SheetSelection != 0 || (SheetQuantities != null && Array.Exists(SheetQuantities, q => q >= 0));
+
+        // nfp_nest_v2 solve. Type t = input sheet set t; its laid-out copies are context.Sheets[t + k*B]. The
+        // engine may open at most that many sheets of a type (each needs a slot to be drawn in), fewer when
+        // its quantity is lower. Opened sheet k of type t is drawn in slot t + k*B.
+        private void run_cpp_v2(int G, int[] pvcA, double[] pxyA, int[] pqtyA, int[] protA, int[] phcA,
+                                int[] phvcA, double[] phxyA, double[] sheetOx, double[] sheetOy,
+                                List<int> srcOrder, Dictionary<int, List<int>> instancesBySource, NfpParams pr)
+        {
+            int N = context.Polygons.Count;
+            int S = context.Sheets.Count;
+            int B = Math.Max(1, Math.Min(SheetTypeCount, S));
+            long instances = 0; foreach (int q in pqtyA) instances += Math.Max(1, q);
+
+            var typeOrig = new List<int>();
+            var qty = new List<int>();
+            var price = new List<double>();
+            var svc = new List<int>(); var sxy = new List<double>();
+            var shc = new List<int>(); var shvc = new List<int>(); var shxy = new List<double>();
+            var rawToSlot = new List<int>();   // engine sheet copy (live preview ids) -> slot
+            for (int t = 0; t < B; t++)
+            {
+                int copies = (S - t + B - 1) / B;   // slots t, t+B, t+2B, ... < S
+                int q = copies;
+                if (SheetQuantities != null && t < SheetQuantities.Length && SheetQuantities[t] >= 0)
+                    q = Math.Min(SheetQuantities[t], copies);
+                if (q <= 0) continue;   // no stock left for this type
+                typeOrig.Add(t);
+                qty.Add(q);
+                price.Add(SheetPrices != null && t < SheetPrices.Length ? SheetPrices[t] : 0.0);
+                var sh = context.Sheets[t];
+                svc.Add(sh.Points.Length);
+                foreach (var p in sh.Points) { sxy.Add(p.x - sheetOx[t]); sxy.Add(p.y - sheetOy[t]); }
+                int nh = sh.children != null ? sh.children.Count : 0;
+                shc.Add(nh);
+                if (sh.children != null)
+                    foreach (var h in sh.children)
+                    {
+                        shvc.Add(h.Points.Length);
+                        foreach (var hp in h.Points) { shxy.Add(hp.x - sheetOx[t]); shxy.Add(hp.y - sheetOy[t]); }
+                    }
+                long engineCopies = Math.Min(q, instances);
+                for (int k = 0; k < engineCopies; k++) rawToSlot.Add(t + k * B);
+            }
+
+            OpenedSheetSlots = new List<int>();
+            OpenedSheetTypes = new List<int>();
+            var none = new int[N]; for (int k = 0; k < N; k++) none[k] = -1;
+            var zeros = new double[N];
+            var pidxAll = new int[N];   // unused when nothing is placed
+            if (typeOrig.Count == 0)
+            {
+                RhinoApp.WriteLine("[nfp_nest_v2] no sheet stock left; every part stays unplaced");
+                applyDllLayout(srcOrder, instancesBySource, sheetOx, sheetOy, zeros, zeros, zeros, none, pidxAll);
+                return;
+            }
+
+            int T = typeOrig.Count;
+            int[] qtyA = qty.ToArray(); double[] priceA = price.ToArray();
+            int[] svcA = svc.ToArray(), shcA = shc.ToArray(), shvcA = shvc.ToArray();
+            double[] sxyA = sxy.ToArray(), shxyA = shxy.ToArray();
+            var tx = new double[N]; var ty = new double[N]; var ang = new double[N];
+            var sid = new int[N]; var pidx = new int[N]; var stype = new int[N];
+            int nSheets = 0; double fitness = 0; int rc = 0;
+            int selection = SheetSelection;
+            var prm = pr;
+
+            NfpNestWrapper.nfp_cancel_reset();
+            var solveTask = Task.Run(() =>
+            {
+                rc = NfpNestWrapper.nfp_nest_v2(
+                    G, pvcA, pxyA, pqtyA, protA, phcA, phvcA, phxyA,
+                    T, svcA, sxyA, shcA, shvcA, shxyA, qtyA, selection == 2 ? priceA : null, selection,
+                    ref prm, tx, ty, ang, sid, pidx, stype, out nSheets, out fitness);
+            });
+
+            var ptx = new double[N]; var pty = new double[N]; var pang = new double[N];
+            var psid = new int[N]; var ppidx = new int[N]; var pslot = new int[N];
+            bool cancelSent = false;
+            while (!solveTask.IsCompleted)
+            {
+                if (StopRequested && !cancelSent) { NfpNestWrapper.nfp_cancel(); cancelSent = true; }
+                try
+                {
+                    CurrentGeneration = (int)NfpNestWrapper.nfp_progress();
+                    CurrentFitness = NfpNestWrapper.nfp_fitness();
+                    int pc = NfpNestWrapper.nfp_poll_layout(N, ptx, pty, pang, psid, ppidx, out int pns);
+                    if (pc > 0)
+                    {
+                        for (int k = 0; k < N; k++)
+                            pslot[k] = psid[k] >= 0 && psid[k] < rawToSlot.Count ? rawToSlot[psid[k]] : -1;
+                        applyDllLayout(srcOrder, instancesBySource, sheetOx, sheetOy, ptx, pty, pang, pslot, ppidx);
+                        _liveBorders = BuildLayoutBorders();
+                    }
+                }
+                catch { }
+                Thread.Sleep(80);
+            }
+            try { solveTask.Wait(); } catch (Exception ex) { RhinoApp.WriteLine(ex.ToString()); }
+
+            if (rc < 0)
+            {
+                RhinoApp.WriteLine("[nfp_nest_v2] failed: " + rc + (rc == NfpNestWrapper.NFP_ERR_INVALID_PRICE
+                    ? " (min price needs a price > 0 on every sheet)" : ""));
+                applyDllLayout(srcOrder, instancesBySource, sheetOx, sheetOy, zeros, zeros, zeros, none, pidxAll);
+                return;
+            }
+
+            // Opened sheet s (type typeOrig[stype[s]]) -> the next unused slot of that type.
+            var opened = new int[nSheets];
+            var usedOfType = new Dictionary<int, int>();
+            for (int s = 0; s < nSheets; s++)
+            {
+                int t = typeOrig[stype[s]];
+                usedOfType.TryGetValue(t, out int k);
+                opened[s] = t + k * B;
+                usedOfType[t] = k + 1;
+                OpenedSheetSlots.Add(opened[s]);
+                OpenedSheetTypes.Add(t);
+            }
+            var slot = new int[N];
+            for (int k = 0; k < N; k++) slot[k] = sid[k] >= 0 && sid[k] < nSheets ? opened[sid[k]] : -1;
+            applyDllLayout(srcOrder, instancesBySource, sheetOx, sheetOy, tx, ty, ang, slot, pidx);
             CurrentGeneration = (int)Math.Max(1, max_iterations);
             CurrentFitness = fitness;
         }
