@@ -51,6 +51,10 @@ of ~36, each filling ~3 sheets — exactly the case batching is built for.
   sheets, not the committed full ones. Global optimality is traded for speed.
 - **Determinism vs. sheet template.** Each batch is nested on a fresh copy of the sheet template; if the
   template defines multiple sheets, the engine may spread a batch across them.
+- **Sheet stock.** A sheet set's **Quantity** (Sheets component) holds across ALL batches: every solve reserves
+  the sheets it opens, and a batch's not-full last sheet is handed back when its parts are re-pooled, so a
+  limited set is never used more often than its quantity. Each output sheet is drawn with its own set's outline.
+  See [sheet selection](sheet_selection.md).
 - **Unplaced parts** (parts too big for any sheet, or that the engine can't place after the final
   consolidation/escalation) are reported as unplaced rather than dropped.
 - **Distribution method** (dropdown) only changes how parts are grouped, not how many batches

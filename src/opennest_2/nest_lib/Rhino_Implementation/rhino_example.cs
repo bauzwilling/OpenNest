@@ -30,6 +30,19 @@ namespace nest_lib
         // 1 => allow smaller parts to nest INSIDE larger parts' holes (NfpParams.useHoles -> NestConfig.fillHoles).
         public int UseHoles = 1;
 
+        // Sheet selection (nfp_nest_v2, docs/sheet_selection.md): 0 = list order, 1 = min total sheet area,
+        // 2 = min total price. Sheet types / quantities / prices come from the nest_sheets (one type per input
+        // sheet set). With 0 and no limited quantity the plain nfp_nest path runs, exactly as before.
+        public int SheetSelection = 0;
+        public int SheetTypeCount = 1;
+        public int[] SheetQuantities;
+        public double[] SheetPrices;
+
+        // After a solve: the opened sheets in OPENING order, as indices into the laid-out sheets
+        // (context.Sheets / nest_sheets.sheets), and the type of each. Used by the batch engine.
+        public List<int> OpenedSheetSlots = new List<int>();
+        public List<int> OpenedSheetTypes = new List<int>();
+
 
 
 
@@ -198,6 +211,10 @@ namespace nest_lib
 
             context.partsLocal = new List<NestItem>();
             context.load_sample_data(ref nest_sheets, ref geometry, ref to_xy);
+
+            SheetTypeCount = Math.Max(1, nest_sheets.type_count);
+            SheetQuantities = nest_sheets.type_quantities;
+            SheetPrices = nest_sheets.type_prices;
 
         }
 

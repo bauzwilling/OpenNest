@@ -33,6 +33,10 @@ namespace opennest_2
             pManager[2].Optional = true;
             pManager[3].Optional = true;
             pManager[4].Optional = true;
+            pManager.AddNumberParameter("Quantity", "Quantity", "Optional, one per sheet set (the last value repeats): how many of that sheet exist. Negative or empty = unlimited. A set can never be used more often than its laid-out copies.", GH_ParamAccess.list);
+            pManager.AddNumberParameter("Price", "Price", "Optional, one per sheet set (the last value repeats): the price of ONE whole sheet, scrap included. Needed for the nesting option Sheet Select = Min Price.", GH_ParamAccess.list);
+            pManager[5].Optional = true;
+            pManager[6].Optional = true;
             
 
         }
@@ -115,6 +119,13 @@ namespace opennest_2
 
             // Create nest_sheet class
             nest_rhino_lib.nest_sheets nest_sheets = new nest_rhino_lib.nest_sheets(plines_list, gap_xy, row_count, (int)copies);
+
+            // Sheet stock per sheet set (inputs added later; older definitions may not have them).
+            var quantities = new List<double>();
+            var prices = new List<double>();
+            if (Params.Input.Count > 5) DA.GetDataList(5, quantities);
+            if (Params.Input.Count > 6) DA.GetDataList(6, prices);
+            nest_sheets.SetStock(quantities, prices);
 
             // Convert array of arrays to a GH_Structure
             Grasshopper.Kernel.Data.GH_Structure<GH_Curve> output_curves = new Grasshopper.Kernel.Data.GH_Structure<GH_Curve>();

@@ -99,6 +99,12 @@ namespace opennest_gh2.components
             nest.ExactNfp = 1;
             nest.TryAllRotations = OptToken("all_rotations", 1);
             nest.UseHoles = OptToken("element_holes", 1);
+            nest.SheetSelection = OptToken("sheet_select", 0);
+            if (nest.SheetSelection == 2 && !sheets.HasPriceForEveryType())
+            {
+                access.AddError("Missing sheet prices", "Sheet Select = Min Price needs a Price > 0 for every sheet (Sheets component, Price input).");
+                return false;
+            }
             _sheets = sheets; _geo = geo; _activeNest = nest;
             // Live per-generation progress + tightening preview (orange borders) from the managed GA solver.
             SetPoll(() => new NestTick

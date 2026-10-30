@@ -44,6 +44,53 @@ namespace nest_rhino_lib
 
         public double[] overwrite_values = new double[] { 2000, 100, 300, 300, 2, 10 };
 
+        // Sheet TYPES for sheet selection (docs/sheet_selection.md). Each input sheet set (one tree branch /
+        // one surface) is a type; the laid-out copies cycle through the types, so copy i is type i % type_count.
+        public int type_count = 1;
+        // Per type: -1 = unlimited, N >= 0 = at most N sheets of that type (0 = none left). null = all unlimited.
+        // A type can never open more sheets than it has laid-out copies.
+        public int[] type_quantities;
+        // Per type: price of ONE whole sheet (scrap included), for the min-price selection. null = no prices.
+        public double[] type_prices;
+
+        // True when every sheet type has a price > 0 (required by the min-price sheet selection).
+        public bool HasPriceForEveryType()
+        {
+            if (type_prices == null || type_prices.Length < type_count) return false;
+            for (int t = 0; t < type_count; t++) if (!(type_prices[t] > 0)) return false;
+            return true;
+        }
+
+        // Quantities + prices as a token, so a nesting component re-solves when only the stock changes.
+        public string StockSignature()
+        {
+            var sb = new System.Text.StringBuilder("stock");
+            if (type_quantities != null) foreach (int q in type_quantities) sb.Append(' ').Append(q);
+            sb.Append(" |");
+            if (type_prices != null) foreach (double p in type_prices) sb.Append(' ').Append(p.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            return sb.ToString();
+        }
+
+        // Apply the Sheets components' optional Quantity / Price lists (one value per sheet set, the last
+        // value repeats; a negative quantity or an empty list = unlimited; a price <= 0 or none = no price).
+        public void SetStock(List<double> quantities, List<double> prices)
+        {
+            if (quantities != null && quantities.Count > 0)
+            {
+                type_quantities = new int[type_count];
+                for (int t = 0; t < type_count; t++)
+                {
+                    double q = quantities[Math.Min(t, quantities.Count - 1)];
+                    type_quantities[t] = q < 0 ? -1 : (int)Math.Floor(q);
+                }
+            }
+            if (prices != null && prices.Count > 0)
+            {
+                type_prices = new double[type_count];
+                for (int t = 0; t < type_count; t++) type_prices[t] = prices[Math.Min(t, prices.Count - 1)];
+            }
+        }
+
         // Deep copy. A solver transforms / offsets its sheets IN PLACE (see offset_sheet_boundary and the
         // placement transforms), so two nesting components fed by the SAME Sheets component would corrupt
         // each other's input — one's solve leaves the other reading already-transformed sheets ("OpenNest2
@@ -64,6 +111,8 @@ namespace nest_rhino_lib
             }
             c.overwrite = this.overwrite != null ? (bool[])this.overwrite.Clone() : null;
             c.overwrite_values = this.overwrite_values != null ? (double[])this.overwrite_values.Clone() : null;
+            c.type_quantities = this.type_quantities != null ? (int[])this.type_quantities.Clone() : null;
+            c.type_prices = this.type_prices != null ? (double[])this.type_prices.Clone() : null;
             return c;
         }
 
@@ -84,6 +133,7 @@ namespace nest_rhino_lib
             if (copies_checked > 0)
                 copies_checked = Math.Max(copies, unsorted_polylines.Count);
             this.sheets = new Polyline[copies_checked][];
+            this.type_count = Math.Max(1, unsorted_polylines.Count);
 
             bool transformed = copies > unsorted_polylines.Count;
 
