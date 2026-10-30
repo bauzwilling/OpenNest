@@ -149,7 +149,9 @@ The cost tier uses a relative tolerance of `1e-9`, so floating-point noise doesn
 ### 4.4 Determinism and threading
 
 Candidate types are evaluated **sequentially** inside one `placeParts` call. Population-level parallelism is
-unchanged. Same seed and same input give the same result.
+unchanged. With serial evaluation the same seed and input give the same result bit for bit. With parallel
+evaluation (as in `nfp_nest` today) threads race to fill the shared NFP cache, and a cached fit differs from a
+fresh one in the last floating-point digits, so two runs can end in different, equally valid layouts.
 
 ## 5. Grasshopper / Rhino
 
@@ -209,7 +211,8 @@ These changes live in NestingService, after this fork release:
 4. **Price:** two same-size types, one cheaper. Mode 2 uses only the cheaper one, unless its stock runs out.
 5. **Limits:** a limited type never exceeds its quantity; `maxSheets` caps the total.
 6. **Errors:** each new error code is returned for its invalid input.
-7. **Determinism:** the same seed gives the same outputs, with parallel evaluation on and off.
+7. **Determinism:** with serial evaluation the same seed gives identical outputs; a parallel run places as
+   many parts, on valid sheets.
 8. **Batch:** stock is respected across batches, and output sheets use their own type's outline.
 
 ## 9. Keeping the fork and NestingService in step
