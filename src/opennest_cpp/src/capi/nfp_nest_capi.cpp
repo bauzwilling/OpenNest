@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
+#include <cmath>
 #include <map>
 
 using namespace nest;
@@ -320,6 +321,7 @@ NFP_API int nfp_nest_v2(
     const int*    sheet_quantities,
     const double* sheet_prices,
     int           sheet_selection,
+    double        sheet_tie_tolerance,
     const NfpParams* params,
     double*       out_tx,
     double*       out_ty,
@@ -333,6 +335,7 @@ NFP_API int nfp_nest_v2(
     if (!params || part_count <= 0 || sheet_type_count <= 0 || !sheet_vertex_counts || !sheet_xy ||
         !sheet_quantities) return -1;
     if (sheet_selection < 0 || sheet_selection > 2) return NFP_ERR_INVALID_SELECTION;
+    if (!(sheet_tie_tolerance >= 0) || !std::isfinite(sheet_tie_tolerance)) return NFP_ERR_INVALID_TOLERANCE;
     for (int t = 0; t < sheet_type_count; t++)
         if (sheet_quantities[t] == 0 || sheet_quantities[t] < -1) return NFP_ERR_INVALID_QUANTITY;
     if (sheet_selection == 2) {
@@ -344,6 +347,7 @@ NFP_API int nfp_nest_v2(
     resetLiveState();
     NestConfig cfg = toConfig(params);
     cfg.sheetSelection = sheet_selection;
+    cfg.sheetTieTolerance = sheet_tie_tolerance;
     if (sheet_prices) cfg.sheetPrices.assign(sheet_prices, sheet_prices + sheet_type_count);
 
     // Expand each type into copies listed together: an unlimited type gets one copy per part instance

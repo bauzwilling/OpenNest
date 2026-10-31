@@ -74,6 +74,7 @@ namespace NfpNest
         public const int NFP_ERR_INVALID_PRICE = -10;
         public const int NFP_ERR_INVALID_QUANTITY = -11;
         public const int NFP_ERR_INVALID_SELECTION = -12;
+        public const int NFP_ERR_INVALID_TOLERANCE = -13;
 
         // Sheet selection (docs/sheet_selection.md): sheets are TYPES with a quantity (-1 = unlimited) and an
         // optional price per whole sheet; the engine picks each opened sheet's type: 0 = list order, 1 = min
@@ -98,6 +99,7 @@ namespace NfpNest
             int[]        sheet_quantities,
             double[]     sheet_prices,       // null unless selection 2
             int          sheet_selection,
+            double       sheet_tie_tolerance,   // relative near-tie margin (0.01 = 1%); ties go to the larger sheet
             ref NfpParams parameters,
             double[]     out_tx,
             double[]     out_ty,

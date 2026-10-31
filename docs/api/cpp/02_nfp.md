@@ -41,7 +41,8 @@ int main(void) {
 
 `nfp_nest_v2` takes sheet **types** instead of individual sheets: each type has a quantity (`-1` = unlimited)
 and, for the min-price mode, a price per whole sheet. The engine then picks the type of every sheet it opens:
-`0` = list order, `1` = min total sheet area, `2` = min total price. `out_sheet_id` numbers the opened sheets
+`0` = list order, `1` = min total sheet area, `2` = min total price; candidates within the tie margin
+(e.g. `0.01` = 1%) count as equal and the larger sheet wins. `out_sheet_id` numbers the opened sheets
 in opening order and `out_sheet_type[s]` gives each one's type. Full rules: [sheet selection](../../sheet_selection.md).
 
 ```cpp
@@ -52,6 +53,6 @@ int    shc[]   = { 0, 0 };
 int    qty[]   = { -1, 2 };                                 // unlimited full sheets, 2 offcuts
 int    stype[12];
 int placed = nfp_nest_v2(4, pvc, pxy, pqty, NULL, part_holes, NULL, NULL,
-                         2, svc, sxy, shc, NULL, NULL, qty, NULL, 1 /* min area */,
+                         2, svc, sxy, shc, NULL, NULL, qty, NULL, 1 /* min area */, 0.01 /* 1% tie margin */,
                          &p, tx, ty, ang, sid, pidx, stype, &n_sheets, &fitness);
 ```

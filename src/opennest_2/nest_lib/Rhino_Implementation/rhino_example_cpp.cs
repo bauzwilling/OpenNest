@@ -264,6 +264,7 @@ namespace nest_lib
             var sid = new int[N]; var pidx = new int[N]; var stype = new int[N];
             int nSheets = 0; double fitness = 0; int rc = 0;
             int selection = SheetSelection;
+            double tieTolerance = SheetTieTolerance;
             var prm = pr;
 
             NfpNestWrapper.nfp_cancel_reset();
@@ -271,7 +272,7 @@ namespace nest_lib
             {
                 rc = NfpNestWrapper.nfp_nest_v2(
                     G, pvcA, pxyA, pqtyA, protA, phcA, phvcA, phxyA,
-                    T, svcA, sxyA, shcA, shvcA, shxyA, qtyA, selection == 2 ? priceA : null, selection,
+                    T, svcA, sxyA, shcA, shvcA, shxyA, qtyA, selection == 2 ? priceA : null, selection, tieTolerance,
                     ref prm, tx, ty, ang, sid, pidx, stype, out nSheets, out fitness);
             });
 

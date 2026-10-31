@@ -203,10 +203,12 @@ void NestingEngine::ResponseProcessor(SheetPlacement payload) {
     ga->population[payload.index].fitness = payload.fitness;
     ga->population[payload.index].unplacedArea = payload.unplacedArea;
     ga->population[payload.index].totalCost = payload.totalCost;
+    ga->population[payload.index].sheetCount = payload.sheetCount;
 
     // Keep nests[0] as the best-so-far under the lexicographic order (unplaced area, cost, fitness).
     if (nests.empty() || placementLess(payload.fitness, payload.unplacedArea, nests[0].fitness, nests[0].unplacedArea,
-                                       payload.totalCost, nests[0].totalCost)) {
+                                       payload.totalCost, nests[0].totalCost, payload.sheetCount, nests[0].sheetCount,
+                                       config.sheetTieTolerance)) {
         nests.insert(nests.begin(), payload);
         if (static_cast<int>(nests.size()) > config.populationSize) {
             nests.pop_back();

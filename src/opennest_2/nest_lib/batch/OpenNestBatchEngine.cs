@@ -33,6 +33,7 @@ namespace nest_lib
         }
 
         private readonly int _sheetSelection;
+        private readonly double _sheetTieTolerance;
         private readonly int[] _stock;   // per type: sheets left, -1 = unlimited; null = no limits
         private readonly Dictionary<int, int> _globalSheetType = new Dictionary<int, int>();
         private readonly nest_rhino_lib.nest_geo _master;
@@ -61,11 +62,12 @@ namespace nest_lib
         public OpenNestBatchEngine(nest_rhino_lib.nest_geo master, nest_rhino_lib.nest_sheets sheetsTemplate,
                                    List<double> parameters, int maxIterations,
                                    int allRotations, int exactNfp, int useHoles, int preOrient = 1,
-                                   int sheetSelection = 0)
+                                   int sheetSelection = 0, double sheetTieTolerance = 0.01)
         {
             _master = master;
             _sheetsTemplate = sheetsTemplate;
             _sheetSelection = sheetSelection;
+            _sheetTieTolerance = sheetTieTolerance;
             _stock = sheetsTemplate.type_quantities != null ? (int[])sheetsTemplate.type_quantities.Clone() : null;
             _parameters = parameters;
             _maxIterations = Math.Max(1, maxIterations);
@@ -175,6 +177,7 @@ namespace nest_lib
                 ExactNfp = _exactNfp,
                 UseHoles = _useHoles,
                 SheetSelection = _sheetSelection,
+                SheetTieTolerance = _sheetTieTolerance,
             };
             _current = nest;
             if (StopRequested) { nest.StopRequested = true; }
