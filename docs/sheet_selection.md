@@ -51,6 +51,7 @@ NFP_API int nfp_nest_v2(
     const int*    sheet_quantities,           // [sheet_type_count]  -1 = unlimited, N>=1 = limited
     const double* sheet_prices,               // [sheet_type_count] or NULL (required for mode 2)
     int           sheet_selection,            // 0 = list order, 1 = min area, 2 = min price
+    double        sheet_tie_tolerance,        // relative near-tie margin, e.g. 0.01 (= 1%); 0 = exact ties only
     const NfpParams* params,                  // unchanged struct (no ABI break for v1 callers)
     // outputs: per instance, in expansion order (as nfp_nest)
     double* out_tx, double* out_ty, double* out_angle,
@@ -73,6 +74,7 @@ NFP_API int nfp_nest_v2(
   - `#define NFP_ERR_INVALID_PRICE -10`: mode `2` with `sheet_prices == NULL`, or any price `≤ 0`.
   - `#define NFP_ERR_INVALID_QUANTITY -11`: a quantity of `0` or `< -1`.
   - `#define NFP_ERR_INVALID_SELECTION -12`: an unknown mode.
+  - `#define NFP_ERR_INVALID_TOLERANCE -13`: a negative or non-finite `sheet_tie_tolerance`.
 - **v1 is v2 with one type per supplied sheet,** each with quantity 1, no prices and mode 0. `nfp_nest` must
   keep producing **identical** layouts for the same seed (§8, parity test).
 
@@ -103,7 +105,11 @@ Then opening a sheet becomes:
 | `1` min area | Run `fillSheet` for **every** type with stock left. Keep the one with the highest `placedArea / sheetArea` (utilization). |
 | `2` min price | Same candidates. Keep the one with the lowest `price / placedArea`: the cost of the whole sheet divided by the part area it would hold, i.e. what each unit of part area costs on that sheet. Scrap earns nothing, so a sheet that would be mostly empty scores badly. |
 
-- **Ties:** keep the smaller sheet area, then the lower type index. This keeps the choice deterministic.
+- **Ties go to the larger sheet.** Every candidate whose score is within `sheet_tie_tolerance` (relative, default
+  1%) of the best score counts as tied, and among those the **larger** sheet is opened, then the lower type
+  index. Same material (or money) on fewer sheets is better: fewer sheet loads, set-ups and handling. Example:
+  parts that fill a 500×500 and a 1000×500 sheet equally well go on 15 big sheets, not 30 small ones. Sizing the
+  last sheet down is unaffected: there the small sheet's score is clearly better, not tied.
 - **Skipped candidates:** a candidate that places **0** parts is never chosen. If every candidate places 0,
   opening stops and the remaining parts are unplaced, as today when a sheet takes nothing.
 - **After choosing:** the winner's placements are committed exactly as the current loop does, and its type's
@@ -140,7 +146,9 @@ between them:
 | `1` | unplaced area → **Σ opened sheet area** → fitness |
 | `2` | unplaced area → **Σ opened sheet price** → fitness |
 
-The cost tier uses a relative tolerance of `1e-9`, so floating-point noise doesn't hide the packing terms.
+Two layouts whose totals differ by no more than `sheet_tie_tolerance` (relative; at least `1e-9` against
+floating-point noise) count as equal on cost, and the one with **fewer opened sheets** wins
+(`SheetPlacement::sheetCount`); only then does fitness decide.
 `SheetPlacement` gains `totalCost` (`std::optional<double>`, set in modes 1 and 2).
 
 **Faithful mode** (`mode = 0` in `NfpParams`, the C# parity mode) is a reference implementation. It **ignores**
@@ -161,7 +169,7 @@ fresh one in the last floating-point digits, so two runs can end in different, e
 | Component | Change |
 |---|---|
 | **Sheets**, **Sheets (surfaces)** (and the Grasshopper 2 **Sheets**) | New optional list inputs **Quantity** and **Price**, one value per sheet set (the last value repeats). A negative or missing quantity = unlimited; a price is per whole sheet. Stored on `nest_sheets` (`type_quantities`, `type_prices`). Older definitions without these inputs behave as before. |
-| **OpenNest2**, **OpenNest2 Batch** (and the Grasshopper 2 **OpenNest2**) | New NestOptions row **Sheet Select**: List Order (default) · Min Area · Min Price. Min Price without a price on every set is a component error. Changing only Quantity / Price re-solves. |
+| **OpenNest2**, **OpenNest2 Batch** (and the Grasshopper 2 **OpenNest2**) | New NestOptions row **Sheet Select**: List Order (default) · Min Area · Min Price. A second row, **Sheet Tie (%)** (default 1), sets the near-tie margin. Min Price without a price on every set is a component error. Changing only Quantity / Price re-solves. |
 | `rhino_example_cpp` | With Sheet Select = List Order and no limited quantity it calls `nfp_nest` exactly as before. Otherwise it calls `nfp_nest_v2` with one type per set. A type may open at most as many sheets as it has laid-out copies (each opened sheet needs a slot to be drawn in); opened sheet `k` of type `t` is drawn in slot `t + k * setCount`. |
 
 Not changed: **OpenNest1** (takes raw sheet geometry, no sheet sets) and **OpenNestCollision** (different
@@ -230,4 +238,6 @@ These changes live in NestingService, after this fork release:
 
 1. **No 90° sheet rotation as a candidate.** Supply both orientations as separate types if needed.
 2. **Price units are opaque:** only their ratios matter. Mixing currencies is the caller's problem.
-3. **Mode 1 does not prefer fewer sheets when areas tie.** Ties keep the smaller sheet, then the lower index.
+3. **Ties prefer fewer sheets** (revised; the first version kept the smaller sheet, which turned "15 big or 30
+   small sheets, same area" into 30 small ones). Per sheet, a near-tie (within `sheet_tie_tolerance`, default 1%)
+   opens the larger sheet; per layout, a near-tie on total cost goes to fewer sheets.

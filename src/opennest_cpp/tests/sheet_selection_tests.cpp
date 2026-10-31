@@ -6,6 +6,7 @@
 // 450x320 sheet 6 to a sheet (utilization 0.83).
 
 #include "capi/nfp_nest_capi.h"
+#include "HelperTypes.h"
 
 #include <cmath>
 #include <cstdio>
@@ -73,7 +74,7 @@ void rect(std::vector<double>& xy, double w, double h) {
 }
 
 Result runV2(int partCount, const std::vector<SheetType>& types, int selection, const NfpParams& p,
-             double partW = 200, double partH = 100) {
+             double partW = 200, double partH = 100, double tieTol = 0.01) {
     std::vector<int> pvc{4}, pqty{partCount}, phc{0};
     std::vector<double> pxy;
     rect(pxy, partW, partH);
@@ -96,7 +97,7 @@ Result runV2(int partCount, const std::vector<SheetType>& types, int selection, 
     double fitness = 0;
     r.rc = nfp_nest_v2(1, pvc.data(), pxy.data(), pqty.data(), nullptr, phc.data(), nullptr, nullptr,
                        static_cast<int>(types.size()), svc.data(), sxy.data(), shc.data(), nullptr, nullptr,
-                       qty.data(), anyPrice ? price.data() : nullptr, selection, &p,
+                       qty.data(), anyPrice ? price.data() : nullptr, selection, tieTol, &p,
                        r.tx.data(), r.ty.data(), r.angle.data(), r.sheetId.data(), r.partIndex.data(),
                        r.sheetType.data(), &r.nSheets, &fitness);
     r.placed = r.rc;
@@ -252,6 +253,7 @@ void test_errors() {
     CHECK(runV2(5, {{1000, 500, -1}}, 3, p).rc == NFP_ERR_INVALID_SELECTION, "selection 3");
     CHECK(runV2(5, {{1000, 500, -1}}, 2, p).rc == NFP_ERR_INVALID_PRICE, "selection 2 without prices");
     CHECK(runV2(5, {{1000, 500, -1, 10}, {450, 320, -1, 0}}, 2, p).rc == NFP_ERR_INVALID_PRICE, "price 0");
+    CHECK(runV2(5, {{1000, 500, -1}}, 1, p, 200, 100, -0.1).rc == NFP_ERR_INVALID_TOLERANCE, "negative tolerance");
 }
 
 void test_determinism_and_faithful() {
@@ -271,6 +273,35 @@ void test_determinism_and_faithful() {
     CHECK(sameLayout(f0, f1), "faithful mode should ignore sheet selection");
 }
 
+void test_ties_prefer_the_larger_sheet() {
+    std::printf("ties: larger sheet, near-ties, fewer sheets\n");
+    using nest::SheetCandidate;
+    using nest::pickSheetCandidate;
+    // Exact tie on utilization: the larger sheet wins, regardless of order.
+    CHECK(pickSheetCandidate({{-1.0, 100}, {-1.0, 200}}, 0.0) == 1, "exact tie should pick the larger sheet");
+    CHECK(pickSheetCandidate({{-1.0, 200}, {-1.0, 100}}, 0.0) == 0, "exact tie should pick the larger sheet");
+    // Near-tie: 0.995 vs 1.0 utilization is within 1%, so the larger sheet wins; with 0 tolerance it doesn't.
+    CHECK(pickSheetCandidate({{-0.995, 200}, {-1.0, 100}}, 0.01) == 0, "near-tie within 1% should pick the larger sheet");
+    CHECK(pickSheetCandidate({{-0.995, 200}, {-1.0, 100}}, 0.0) == 1, "with 0 tolerance the better score wins");
+    // Clearly better (0.9 vs 1.0): the better score wins even though the other sheet is larger.
+    CHECK(pickSheetCandidate({{-0.9, 200}, {-1.0, 100}}, 0.01) == 1, "a clearly better score wins");
+    // Min price (positive scores): 40.2 vs 40 per unit is within 1% -> larger sheet.
+    CHECK(pickSheetCandidate({{40.0, 100}, {40.2, 300}}, 0.01) == 1, "price near-tie should pick the larger sheet");
+    CHECK(pickSheetCandidate({}, 0.01) == -1, "no candidates");
+
+    // Whole layouts: equal (within tolerance) total cost -> fewer sheets is better.
+    std::optional<double> fit = 1.0, unpl = 0.0;
+    CHECK(nest::placementLess(fit, unpl, fit, unpl, 100.0, 100.5, 15, 30, 0.01), "fewer sheets should win a near-tie on cost");
+    CHECK(!nest::placementLess(fit, unpl, fit, unpl, 100.0, 100.5, 30, 15, 0.01), "more sheets should lose a near-tie on cost");
+    CHECK(nest::placementLess(fit, unpl, fit, unpl, 100.0, 110.0, 30, 15, 0.01), "a clearly lower cost still wins");
+
+    // The 30-small vs 15-big case: a 500x250 part fills a 500x500 sheet 2 to a sheet and a 1000x500 sheet
+    // 4 to a sheet, both at utilization 1.0. 60 parts: 30 small or 15 big, same area -> 15 big.
+    Result r = runV2(60, {{500, 500, -1}, {1000, 500, -1}}, 1, params(), 500, 250);
+    CHECK(r.placed == 60, "placed %d of 60", r.placed);
+    CHECK(r.perType[0] == 0, "used %d small and %d big sheets, want only big", r.perType[0], r.perType[1]);
+}
+
 } // namespace
 
 int main() {
@@ -279,6 +310,7 @@ int main() {
     test_limited_stock_is_respected();
     test_min_price();
     test_errors();
+    test_ties_prefer_the_larger_sheet();
     test_determinism_and_faithful();
     if (g_failures) {
         std::printf("%d check(s) FAILED\n", g_failures);

@@ -106,10 +106,12 @@ std::vector<PopulationItem> GeneticAlgorithm::mate(const PopulationItem& male, c
 // Selection is index-based so excluding the male shrinks the weight denominator exactly like C#
 // (PopulationItem is a reference type there); RNG call order is one NextDouble per selection.
 void GeneticAlgorithm::generation() {
-    std::sort(population.begin(), population.end(), [](const PopulationItem& a, const PopulationItem& b) {
+    const double tieTol = Config.sheetTieTolerance;
+    std::sort(population.begin(), population.end(), [tieTol](const PopulationItem& a, const PopulationItem& b) {
         // Lexicographic: fewer unplaced (by area) first, then tighter packing. In faithful mode both
         // unplacedArea are empty so this degrades to the canonical fitness-only ordering.
-        return placementLess(a.fitness, a.unplacedArea, b.fitness, b.unplacedArea, a.totalCost, b.totalCost);
+        return placementLess(a.fitness, a.unplacedArea, b.fitness, b.unplacedArea, a.totalCost, b.totalCost,
+                             a.sheetCount, b.sheetCount, tieTol);
     });
 
     auto pickIndex = [&](int excludeIdx) -> int {

@@ -100,6 +100,7 @@ namespace opennest_gh2.components
             nest.TryAllRotations = OptToken("all_rotations", 1);
             nest.UseHoles = OptToken("element_holes", 1);
             nest.SheetSelection = OptToken("sheet_select", 0);
+            nest.SheetTieTolerance = Math.Max(0, OptNum("sheet_tie", 1)) / 100.0;
             if (nest.SheetSelection == 2 && !sheets.HasPriceForEveryType())
             {
                 access.AddError("Missing sheet prices", "Sheet Select = Min Price needs a Price > 0 for every sheet (Sheets component, Price input).");

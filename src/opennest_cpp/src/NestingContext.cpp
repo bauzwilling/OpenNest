@@ -163,7 +163,8 @@ void NestingContext::NestIterate(int max_iterations) {
     auto& plcpr = Nest.nests.front();
 
     if (!hasCurrent || placementLess(plcpr.fitness, plcpr.unplacedArea, current.fitness, current.unplacedArea,
-                                         plcpr.totalCost, current.totalCost)) {
+                                         plcpr.totalCost, current.totalCost, plcpr.sheetCount, current.sheetCount,
+                                         config.sheetTieTolerance)) {
         AssignPlacement(plcpr);
     }
 
@@ -178,7 +179,8 @@ void NestingContext::NestIterateGeneration() {
 
     auto& plcpr = Nest.nests.front();
     if (!hasCurrent || placementLess(plcpr.fitness, plcpr.unplacedArea, current.fitness, current.unplacedArea,
-                                         plcpr.totalCost, current.totalCost)) {
+                                         plcpr.totalCost, current.totalCost, plcpr.sheetCount, current.sheetCount,
+                                         config.sheetTieTolerance)) {
         AssignPlacement(plcpr);
     }
 
@@ -360,7 +362,9 @@ NestingContext NestingContext::RunParallelSeeds(
         if (!contexts[bestIdx]->HasCurrent() ||
             placementLess(contexts[s]->Current().fitness, contexts[s]->Current().unplacedArea,
                           contexts[bestIdx]->Current().fitness, contexts[bestIdx]->Current().unplacedArea,
-                          contexts[s]->Current().totalCost, contexts[bestIdx]->Current().totalCost)) {
+                          contexts[s]->Current().totalCost, contexts[bestIdx]->Current().totalCost,
+                          contexts[s]->Current().sheetCount, contexts[bestIdx]->Current().sheetCount,
+                          baseConfig.sheetTieTolerance)) {
             bestIdx = s;
         }
     }

@@ -176,6 +176,7 @@ namespace opennest_2
                 Tok("all_rotations", "1"),
                 Tok("fit_orientation", "1"),   // past index 8, so the positional mapping above is untouched
                 Tok("sheet_select", "0"),      // parsed by name
+                Tok("sheet_tie", "1"),         // parsed by name (percent)
                 "exact_nfp 1",                    // not exposed: ALWAYS exact NFP (parts touch, no gap, no overlap)
                 Tok("font", "MecSoft_Font-1 1"),  // font row: EmitToken returns the raw token; must be LAST
             };
@@ -407,8 +408,12 @@ namespace opennest_2
                 int useHoles = 1;   // default: nest smaller parts into larger parts' holes ("element_holes")
                 int preOrient = 1;  // default: pre-orient oversized parts so they fit ("fit_orientation")
                 int sheetSelect = 0;   // "sheet_select": 0 list order, 1 min area, 2 min price
+                double sheetTie = 1;   // "sheet_tie": near-tie margin in percent
                 foreach (var line in parameters_text)
                 {
+                    var st = line.Split(' ');
+                    if (st.Length >= 2 && st[0].Equals("sheet_tie", StringComparison.OrdinalIgnoreCase)
+                        && double.TryParse(st[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double tv)) sheetTie = tv;
                     var ss = line.Split(' ');
                     if (ss.Length >= 2 && ss[0].Equals("sheet_select", StringComparison.OrdinalIgnoreCase)
                         && int.TryParse(ss[1], out int sv)) sheetSelect = sv;
@@ -444,6 +449,7 @@ namespace opennest_2
                     _pendingNest.ExactNfp = exactNfp;
                     _pendingNest.UseHoles = useHoles;
                     _pendingNest.SheetSelection = sheetSelect;
+                    _pendingNest.SheetTieTolerance = Math.Max(0, sheetTie) / 100.0;
                 }
                 catch (Exception ex)
                 {

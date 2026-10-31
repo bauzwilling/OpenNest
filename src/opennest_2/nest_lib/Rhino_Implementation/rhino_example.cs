@@ -34,6 +34,9 @@ namespace nest_lib
         // 2 = min total price. Sheet types / quantities / prices come from the nest_sheets (one type per input
         // sheet set). With 0 and no limited quantity the plain nfp_nest path runs, exactly as before.
         public int SheetSelection = 0;
+        // Near-tie margin for sheet selection (relative, 0.01 = 1%): sheets scoring within it of the best are
+        // tied and the LARGER one is opened (fewer sheets). 0 = exact ties only.
+        public double SheetTieTolerance = 0.01;
         public int SheetTypeCount = 1;
         public int[] SheetQuantities;
         public double[] SheetPrices;

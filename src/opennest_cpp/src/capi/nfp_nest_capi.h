@@ -81,6 +81,7 @@ NFP_API int nfp_nest(
 #define NFP_ERR_INVALID_PRICE     (-10)  // selection 2 without prices, or a price <= 0
 #define NFP_ERR_INVALID_QUANTITY  (-11)  // a sheet quantity of 0 or < -1
 #define NFP_ERR_INVALID_SELECTION (-12)  // sheet_selection not 0, 1 or 2
+#define NFP_ERR_INVALID_TOLERANCE (-13)  // sheet_tie_tolerance negative or not finite
 
 // Sheet selection: like nfp_nest, but sheets are given as TYPES, and the engine chooses the type of
 // each sheet it opens (see docs/sheet_selection.md).
@@ -90,7 +91,10 @@ NFP_API int nfp_nest(
 //   sheet_selection:     0 = list order (each sheet opened in input order, types in order, as
 //                        nfp_nest), 1 = min total sheet area (open the type with the best
 //                        utilization), 2 = min total price (open the type with the lowest price per
-//                        placed part area). Ties keep the smaller sheet, then the earlier type.
+//                        placed part area).
+//   sheet_tie_tolerance: relative near-tie margin (0.01 = 1%; 0 = exact ties only). Candidates within it of
+//                        the best score are tied and the LARGER sheet wins (fewer sheets), then the earlier
+//                        type; whole layouts within it on total area / price prefer fewer sheets.
 //                        Faithful mode (params->mode == 0) always uses list order.
 // Outputs per instance as nfp_nest, except out_sheet_id numbers the OPENED sheets 0..n_sheets-1 in the
 // order they were opened; out_sheet_type[s] is the type of opened sheet s (first *out_n_sheets entries
@@ -114,6 +118,7 @@ NFP_API int nfp_nest_v2(
     const int*    sheet_quantities,          // [sheet_type_count] -1 = unlimited, N >= 1
     const double* sheet_prices,              // [sheet_type_count] or NULL
     int           sheet_selection,           // 0 = list order, 1 = min area, 2 = min price
+    double        sheet_tie_tolerance,       // relative near-tie margin, e.g. 0.01
     const NfpParams* params,
     double*       out_tx,                    // [instance_count]
     double*       out_ty,                    // [instance_count]

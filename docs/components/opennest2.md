@@ -49,6 +49,7 @@ On-canvas settings shown on the component body (zoom in on the component to reve
 | **Element Holes** | Choice | Fill | Off · Fill | Nest smaller parts **inside** larger parts' holes. |
 | **Fit Orientation** | Choice | On | Off · On | Pre-rotate any part whose bounding box does not fit a sheet as drawn into an orientation that does — preferring a **Rotations** step, using an off-step angle only when no step fits. Parts that already fit are never touched. |
 | **Sheet Select** | Choice | List Order | List Order · Min Area · Min Price | How each new sheet is chosen when the Sheets component has several sheet sets. **List Order** = as laid out (unchanged). **Min Area** = the set that is filled best, for the least total sheet area. **Min Price** = the set with the lowest price per placed part area, for the lowest total price (needs a **Price** on every sheet set). The last sheet's scrap counts; each set's **Quantity** limits it. Also on OpenNest2 Batch. See [sheet selection](../sheet_selection.md). |
+| **Sheet Tie (%)** | Number | 1 | 0 – 100 | With Min Area / Min Price: sheet sets scoring within this many percent of the best count as equal, and the **larger** sheet is opened (fewer sheets for about the same material or money). 0 = exact ties only. |
 | **Sheet Font** | Text | `MecSoft_Font-1 1` | — | Sheet-number label: font name + text size. |
 
 ## Initial orientation
