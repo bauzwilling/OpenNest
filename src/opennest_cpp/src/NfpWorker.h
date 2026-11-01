@@ -83,9 +83,13 @@ public:
         return *this;
     }
 
-    // --- Configuration flags (shared, not mutable per-instance) ---
+    // --- Configuration flags ---
     static bool EnableCaches;
-    static bool UseParallel;
+    // Per THREAD: whether this thread may fan its NFP / rotation work out to worker threads. Threads start
+    // with false (no nested fan-out from a worker); the solve entry and each turbo seed set it. Per thread
+    // because concurrent seeds toggle it independently (launchWorkersParallel turns it on for the pre-warm
+    // and off while evaluating candidates).
+    static thread_local bool UseParallel;
 
     // --- Instance caches (per-NfpWorker, protected by cacheMutex_) ---
     std::unordered_map<uint64_t, std::vector<std::shared_ptr<NFP>>> cacheProcess;

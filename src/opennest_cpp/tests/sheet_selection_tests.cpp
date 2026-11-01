@@ -323,6 +323,26 @@ void test_cancel_returns_best_so_far() {
     }
 }
 
+// Turbo (mode 2) with useParallel runs each seed a whole generation per step, its candidates in parallel;
+// without it, one candidate per step. Same search, so the same outcome counts (the exact layout may differ
+// in parallel, see params()).
+void test_turbo_generation_parallel() {
+    std::printf("turbo: generation-parallel seeds\n");
+    std::vector<SheetType> types{{1000, 500, -1}, {450, 320, -1}};
+    for (int selection : {0, 1}) {
+        Result serial = runV2(55, types, selection, params(9, 2, 0));
+        Result parallel = runV2(55, types, selection, params(9, 2, 1));
+        CHECK(serial.rc >= 0 && parallel.rc >= 0, "selection %d: rc serial %d parallel %d", selection, serial.rc,
+              parallel.rc);
+        checkOutputs(parallel, 2, "turbo parallel");
+        CHECK(parallel.placed == serial.placed && parallel.nSheets == serial.nSheets,
+              "selection %d: parallel placed %d on %d sheets, serial %d on %d", selection, parallel.placed,
+              parallel.nSheets, serial.placed, serial.nSheets);
+        CHECK(parallel.totalArea <= serial.totalArea * 1.01, "selection %d: parallel area %.0f, serial %.0f",
+              selection, parallel.totalArea, serial.totalArea);
+    }
+}
+
 // compare_sheet_types: the per-sheet run, then each type alone, each with ceil(generations / (types + 1));
 // the result is the best of those whole layouts (least unplaced, then least cost within the tie margin,
 // then fewer sheets). Serial runs are reproducible, so the winner must equal one of the separate runs.
@@ -393,6 +413,7 @@ int main() {
     test_ties_prefer_the_larger_sheet();
     test_determinism_and_faithful();
     test_cancel_returns_best_so_far();
+    test_turbo_generation_parallel();
     test_compare_sheet_types();
     if (g_failures) {
         std::printf("%d check(s) FAILED\n", g_failures);
