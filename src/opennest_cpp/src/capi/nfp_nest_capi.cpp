@@ -420,7 +420,8 @@ int runSolve(NestingContext& ctx, const NestConfig& cfg, const NfpParams* params
             [&](int /*seed*/, int iter, const NestingContext& c) {
                 if (iter > g_progress) g_progress = iter;
                 if (c.HasCurrent()) g_fitness = c.Current().fitness.value_or(0.0);
-            });
+            },
+            [] { return g_cancel.load(); });   // nfp_cancel stops every seed; the best so far is returned
         updateSnapshot(best, instancePart);
         return read(best);
     }

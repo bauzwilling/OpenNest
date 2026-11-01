@@ -282,7 +282,8 @@ NestingContext NestingContext::RunParallelSeeds(
     const NestConfig& baseConfig,
     int numSeeds,
     int iterationsPerSeed,
-    std::function<void(int seed, int iter, const NestingContext&)> progressCallback)
+    std::function<void(int seed, int iter, const NestingContext&)> progressCallback,
+    std::function<bool()> shouldStop)
 {
     // Set static Config once for offset tree helpers (all seeds share same base params)
     NestingEngine::Config = baseConfig;
@@ -342,8 +343,9 @@ NestingContext NestingContext::RunParallelSeeds(
     // Run all seeds in parallel
     std::vector<std::thread> threads;
     for (int s = 0; s < numSeeds; s++) {
-        threads.emplace_back([&contexts, s, iterationsPerSeed, &progressCallback, &progressMutex]() {
+        threads.emplace_back([&contexts, s, iterationsPerSeed, &progressCallback, &progressMutex, &shouldStop]() {
             for (int i = 0; i < iterationsPerSeed; i++) {
+                if (shouldStop && shouldStop()) break;
                 contexts[s]->NestIterate(iterationsPerSeed);
                 if (progressCallback) {
                     std::lock_guard<std::mutex> lock(progressMutex);

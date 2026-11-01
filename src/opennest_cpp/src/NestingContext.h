@@ -48,7 +48,9 @@ public:
         const NestConfig& baseConfig,
         int numSeeds,
         int iterationsPerSeed,
-        std::function<void(int seed, int iter, const NestingContext&)> progressCallback = nullptr);
+        std::function<void(int seed, int iter, const NestingContext&)> progressCallback = nullptr,
+        // Polled after every step of every seed; true stops all seeds and returns the best so far (nfp_cancel).
+        std::function<bool()> shouldStop = nullptr);
 
     NestConfig config;  // per-context config (different seed for multi-seed)
     NestingEngine Nest;
