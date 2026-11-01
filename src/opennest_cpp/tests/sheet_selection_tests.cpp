@@ -8,10 +8,12 @@
 #include "capi/nfp_nest_capi.h"
 #include "HelperTypes.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <map>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -302,6 +304,25 @@ void test_ties_prefer_the_larger_sheet() {
     CHECK(r.perType[0] == 0, "used %d small and %d big sheets, want only big", r.perType[0], r.perType[1]);
 }
 
+// nfp_cancel must stop a running solve promptly in every engine mode and return the best layout so far
+// (hosts rely on it to honor a time limit). Turbo (mode 2) runs independent seeds on threads.
+void test_cancel_returns_best_so_far() {
+    std::printf("cancel returns the best so far\n");
+    for (int mode : {1, 2}) {
+        NfpParams p = params(5, mode, 1);
+        p.generations = 100000;   // far longer than the test may take
+        Result r;
+        auto t0 = std::chrono::steady_clock::now();
+        std::thread solve([&] { r = runV2(40, {{1000, 500, -1}, {450, 320, -1}}, 1, p); });
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        nfp_cancel();
+        solve.join();
+        double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        CHECK(secs < 30, "mode %d: cancel took %.1f s to stop the solve", mode, secs);
+        CHECK(r.rc == 40 || r.placed > 0, "mode %d: cancelled solve returned no layout (rc %d)", mode, r.rc);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -312,6 +333,7 @@ int main() {
     test_errors();
     test_ties_prefer_the_larger_sheet();
     test_determinism_and_faithful();
+    test_cancel_returns_best_so_far();
     if (g_failures) {
         std::printf("%d check(s) FAILED\n", g_failures);
         return 1;
