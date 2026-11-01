@@ -37,6 +37,10 @@ namespace nest_lib
         // Near-tie margin for sheet selection (relative, 0.01 = 1%): sheets scoring within it of the best are
         // tied and the LARGER one is opened (fewer sheets). 0 = exact ties only.
         public double SheetTieTolerance = 0.01;
+        // 1 = with Min Area / Min Price, also nest with each sheet type alone and keep the best whole layout (least
+        // unplaced, then least total area / price, near-ties to fewer sheets). The iterations are shared between
+        // the runs. 0 = off.
+        public int CompareSheetTypes = 0;
         public int SheetTypeCount = 1;
         public int[] SheetQuantities;
         public double[] SheetPrices;

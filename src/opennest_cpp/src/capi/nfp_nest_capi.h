@@ -95,6 +95,12 @@ NFP_API int nfp_nest(
 //   sheet_tie_tolerance: relative near-tie margin (0.01 = 1%; 0 = exact ties only). Candidates within it of
 //                        the best score are tied and the LARGER sheet wins (fewer sheets), then the earlier
 //                        type; whole layouts within it on total area / price prefer fewer sheets.
+//   compare_sheet_types: 0 = off. 1 (with selection 1 or 2 and more than one sheet type) = also nest with
+//                        EACH sheet type alone and return the best whole layout: least unplaced area, then
+//                        least total area / price (within sheet_tie_tolerance: fewer sheets wins). The
+//                        per-sheet run goes first, then one run per type; the generations (and a time budget)
+//                        are shared between the runs, so the total work stays about the same. nfp_cancel stops
+//                        the running run and skips the rest; the best finished layout is returned.
 //                        Faithful mode (params->mode == 0) always uses list order.
 // Outputs per instance as nfp_nest, except out_sheet_id numbers the OPENED sheets 0..n_sheets-1 in the
 // order they were opened; out_sheet_type[s] is the type of opened sheet s (first *out_n_sheets entries
@@ -119,6 +125,7 @@ NFP_API int nfp_nest_v2(
     const double* sheet_prices,              // [sheet_type_count] or NULL
     int           sheet_selection,           // 0 = list order, 1 = min area, 2 = min price
     double        sheet_tie_tolerance,       // relative near-tie margin, e.g. 0.01
+    int           compare_sheet_types,       // 1 = also try each sheet type alone, keep the best layout
     const NfpParams* params,
     double*       out_tx,                    // [instance_count]
     double*       out_ty,                    // [instance_count]

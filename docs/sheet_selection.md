@@ -52,6 +52,7 @@ NFP_API int nfp_nest_v2(
     const double* sheet_prices,               // [sheet_type_count] or NULL (required for mode 2)
     int           sheet_selection,            // 0 = list order, 1 = min area, 2 = min price
     double        sheet_tie_tolerance,        // relative near-tie margin, e.g. 0.01 (= 1%); 0 = exact ties only
+    int           compare_sheet_types,        // 0 = off; 1 = also nest with each type alone, keep the best (§4.5)
     const NfpParams* params,                  // unchanged struct (no ABI break for v1 callers)
     // outputs: per instance, in expansion order (as nfp_nest)
     double* out_tx, double* out_ty, double* out_angle,
@@ -161,6 +162,27 @@ unchanged. With serial evaluation the same seed and input give the same result b
 evaluation (as in `nfp_nest` today) threads race to fill the shared NFP cache, and a cached fit differs from a
 fresh one in the last floating-point digits, so two runs can end in different, equally valid layouts.
 
+### 4.5 Comparing whole layouts (optional, `compare_sheet_types = 1`)
+
+Choosing each sheet as you go is greedy: every sheet is the best fill for the parts that are left, but the
+whole layout can still lose to one sheet size used throughout (a real case: per-sheet min area opened 39 sheets
+where the biggest size alone needed 32 for the same area). With `compare_sheet_types = 1`, mode 1 or 2 and more
+than one sheet type, `nfp_nest_v2` runs:
+
+1. the normal per-sheet solve on all types, then
+2. one solve per type **alone** (list order, that type's quantity),
+
+and returns the **best whole layout**: least unplaced part area, then least total sheet area (mode 1) or price
+(mode 2), where totals within `sheet_tie_tolerance` are equal and **fewer sheets** wins; an exact tie keeps the
+earlier run (the per-sheet one first). `out_sheet_type` always holds the original type index.
+
+- **Same total work.** Each of the `types + 1` runs gets `ceil(generations / (types + 1))` generations, and a
+  `timeBudgetSecs` is split the same way. So with few iterations each run searches less than one full solve;
+  raise the iterations to give every run a real search.
+- **Cancel / time limit.** `nfp_cancel` stops the running run (it returns its best so far), the remaining runs
+  are skipped, and the best finished layout is returned.
+- Off by default; ignored with mode 0, in faithful mode (it ignores selection) and with a single type.
+
 ## 5. Grasshopper / Rhino
 
 **Sheet types are sheet sets.** Each input sheet set (one tree branch on Sheets, one surface on Sheets
@@ -169,7 +191,7 @@ fresh one in the last floating-point digits, so two runs can end in different, e
 | Component | Change |
 |---|---|
 | **Sheets**, **Sheets (surfaces)** (and the Grasshopper 2 **Sheets**) | New optional list inputs **Quantity** and **Price**, one value per sheet set (the last value repeats). A negative or missing quantity = unlimited; a price is per whole sheet. Stored on `nest_sheets` (`type_quantities`, `type_prices`). Older definitions without these inputs behave as before. |
-| **OpenNest2**, **OpenNest2 Batch** (and the Grasshopper 2 **OpenNest2**) | New NestOptions row **Sheet Select**: List Order (default) · Min Area · Min Price. A second row, **Sheet Tie (%)** (default 1), sets the near-tie margin. Min Price without a price on every set is a component error. Changing only Quantity / Price re-solves. |
+| **OpenNest2**, **OpenNest2 Batch** (and the Grasshopper 2 **OpenNest2**) | New NestOptions row **Sheet Select**: List Order (default) · Min Area · Min Price. A second row, **Sheet Tie (%)** (default 1), sets the near-tie margin, and a third, **Compare Types** (Off by default), turns on §4.5. Min Price without a price on every set is a component error. Changing only Quantity / Price re-solves. |
 | `rhino_example_cpp` | With Sheet Select = List Order and no limited quantity it calls `nfp_nest` exactly as before. Otherwise it calls `nfp_nest_v2` with one type per set. A type may open at most as many sheets as it has laid-out copies (each opened sheet needs a slot to be drawn in); opened sheet `k` of type `t` is drawn in slot `t + k * setCount`. |
 
 Not changed: **OpenNest1** (takes raw sheet geometry, no sheet sets) and **OpenNestCollision** (different
@@ -190,13 +212,14 @@ from breaking ties.
 2. **Local sheets in opening order.** v2 slots are not in opening order, so the engine maps them back
    (`rhino_example.OpenedSheetSlots` / `OpenedSheetTypes`); the last local sheet is the last opened one.
 3. **Each output sheet is drawn with its own type's outline** (the type's first laid-out copy), not sheet 0's.
-4. **`sheet_selection` is passed through** to every batch solve.
+4. **`sheet_selection`, the tie margin and `compare_sheet_types` are passed through** to every batch solve.
 
 ## 7. NestingService (host) integration
 
 These changes live in NestingService, after this fork release:
 
 - **Option** `nesting.sheetSelection`: `"drawingOrder"` (default) / `"minArea"` / `"minPrice"`.
+- **Option** `nesting.compareSheetTypes` (default `false`): `compare_sheet_types` (§4.5).
 - **Sheet `price` metadata** (`NEST` XData). Mode `minPrice` with a sheet missing a price fails the job with
   `INVALID_OPTIONS`, naming the sheet.
 - **The adapter calls `nfp_nest_v2`** with one type per sheet definition. Quantity is what's left (limited) or
@@ -222,6 +245,9 @@ These changes live in NestingService, after this fork release:
 7. **Determinism:** with serial evaluation the same seed gives identical outputs; a parallel run places as
    many parts, on valid sheets.
 8. **Batch:** stock is respected across batches, and output sheets use their own type's outline.
+9. **Compare types (§4.5):** in modes 1 and 2 the result equals the best of the per-sheet run and the single-type
+   runs, each run separately with the split generations; off, mode 0 or one type gives the plain solve; a
+   cancel during the first run returns a full layout.
 
 ## 9. Keeping the fork and NestingService in step
 
@@ -241,3 +267,6 @@ These changes live in NestingService, after this fork release:
 3. **Ties prefer fewer sheets** (revised; the first version kept the smaller sheet, which turned "15 big or 30
    small sheets, same area" into 30 small ones). Per sheet, a near-tie (within `sheet_tie_tolerance`, default 1%)
    opens the larger sheet; per layout, a near-tie on total cost goes to fewer sheets.
+4. **Comparing whole layouts is optional** (`compare_sheet_types`, default off). Per-sheet choice usually wins on
+   area, but one sheet size alone sometimes needs fewer sheets for the same area or less. Comparing costs no
+   extra time (the generations are split), but each run searches less, so it is the caller's choice.
