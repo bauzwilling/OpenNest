@@ -76,7 +76,7 @@ void rect(std::vector<double>& xy, double w, double h) {
 }
 
 Result runV2(int partCount, const std::vector<SheetType>& types, int selection, const NfpParams& p,
-             double partW = 200, double partH = 100, double tieTol = 0.01) {
+             double partW = 200, double partH = 100, double tieTol = 0.01, int compare = 0) {
     std::vector<int> pvc{4}, pqty{partCount}, phc{0};
     std::vector<double> pxy;
     rect(pxy, partW, partH);
@@ -99,7 +99,7 @@ Result runV2(int partCount, const std::vector<SheetType>& types, int selection, 
     double fitness = 0;
     r.rc = nfp_nest_v2(1, pvc.data(), pxy.data(), pqty.data(), nullptr, phc.data(), nullptr, nullptr,
                        static_cast<int>(types.size()), svc.data(), sxy.data(), shc.data(), nullptr, nullptr,
-                       qty.data(), anyPrice ? price.data() : nullptr, selection, tieTol, &p,
+                       qty.data(), anyPrice ? price.data() : nullptr, selection, tieTol, compare, &p,
                        r.tx.data(), r.ty.data(), r.angle.data(), r.sheetId.data(), r.partIndex.data(),
                        r.sheetType.data(), &r.nSheets, &fitness);
     r.placed = r.rc;
@@ -283,7 +283,7 @@ void test_ties_prefer_the_larger_sheet() {
     CHECK(pickSheetCandidate({{-1.0, 100}, {-1.0, 200}}, 0.0) == 1, "exact tie should pick the larger sheet");
     CHECK(pickSheetCandidate({{-1.0, 200}, {-1.0, 100}}, 0.0) == 0, "exact tie should pick the larger sheet");
     // Near-tie: 0.995 vs 1.0 utilization is within 1%, so the larger sheet wins; with 0 tolerance it doesn't.
-    CHECK(pickSheetCandidate({{-0.995, 200}, {-1.0, 100}}, 0.01) == 0, "near-tie within 1% should pick the larger sheet");
+    CHECK(pickSheetCandidate({{-0.995, 200}, {-1.0, 100}}, 0.01) == 0, "near-tie within 1%% should pick the larger sheet");
     CHECK(pickSheetCandidate({{-0.995, 200}, {-1.0, 100}}, 0.0) == 1, "with 0 tolerance the better score wins");
     // Clearly better (0.9 vs 1.0): the better score wins even though the other sheet is larger.
     CHECK(pickSheetCandidate({{-0.9, 200}, {-1.0, 100}}, 0.01) == 1, "a clearly better score wins");
@@ -323,6 +323,65 @@ void test_cancel_returns_best_so_far() {
     }
 }
 
+// compare_sheet_types: the per-sheet run, then each type alone, each with ceil(generations / (types + 1));
+// the result is the best of those whole layouts (least unplaced, then least cost within the tie margin,
+// then fewer sheets). Serial runs are reproducible, so the winner must equal one of the separate runs.
+void test_compare_sheet_types() {
+    std::printf("compare sheet types\n");
+    for (int selection : {1, 2}) {
+        std::vector<SheetType> types{{1000, 500, -1, 120}, {450, 320, -1, 40}, {700, 400, -1, 70}};
+        const int parts = 55;
+        NfpParams p = params(7);
+        p.generations = 6;
+        NfpParams sub = p;
+        sub.generations = (p.generations + 3) / 4;   // 4 runs: per-sheet + 3 types
+
+        Result cmp = runV2(parts, types, selection, p, 200, 100, 0.01, 1);
+        CHECK(cmp.rc >= 0, "selection %d: rc %d", selection, cmp.rc);
+        checkOutputs(cmp, 3, "compare");
+
+        std::vector<Result> runs{runV2(parts, types, selection, sub)};
+        for (size_t t = 0; t < types.size(); t++) runs.push_back(runV2(parts, {types[t]}, 0, sub));
+        auto cost = [&](const Result& r) { return selection == 2 ? r.totalPrice : r.totalArea; };
+        size_t best = 0;
+        for (size_t k = 1; k < runs.size(); k++) {
+            const Result &a = runs[k], &b = runs[best];
+            if (a.placed != b.placed) { if (a.placed > b.placed) best = k; continue; }
+            double tol = 0.01 * std::max(1.0, std::max(cost(a), cost(b)));
+            if (std::fabs(cost(a) - cost(b)) > tol) { if (cost(a) < cost(b)) best = k; continue; }
+            if (a.nSheets < b.nSheets) best = k;
+        }
+        CHECK(sameLayout(cmp, runs[best]), "selection %d: compare result is not the best run (%zu)", selection, best);
+        CHECK(cost(cmp) <= cost(runs[0]) * 1.01 + 1e-9, "selection %d: compare cost %.0f worse than per-sheet %.0f",
+              selection, cost(cmp), cost(runs[0]));
+        // A single-type winner reports the original type index.
+        if (best > 0)
+            for (int s = 0; s < cmp.nSheets; s++)
+                CHECK(cmp.sheetType[s] == static_cast<int>(best) - 1, "sheet %d type %d, want %zu", s,
+                      cmp.sheetType[s], best - 1);
+    }
+
+    // Off, list order, or one type: exactly the plain solve.
+    std::vector<SheetType> types{{1000, 500, -1}, {450, 320, -1}};
+    CHECK(sameLayout(runV2(55, types, 0, params(), 200, 100, 0.01, 1), runV2(55, types, 0, params())),
+          "compare with list order should be the plain solve");
+    CHECK(sameLayout(runV2(55, {types[0]}, 1, params(), 200, 100, 0.01, 1), runV2(55, {types[0]}, 1, params())),
+          "compare with one type should be the plain solve");
+
+    // Cancel during the first run: the remaining runs are skipped and a layout comes back.
+    NfpParams p = params(5, 1, 1);
+    p.generations = 100000;
+    Result r;
+    auto t0 = std::chrono::steady_clock::now();
+    std::thread solve([&] { r = runV2(40, types, 1, p, 200, 100, 0.01, 1); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    nfp_cancel();
+    solve.join();
+    double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    CHECK(secs < 30, "compare: cancel took %.1f s", secs);
+    CHECK(r.rc == 40, "compare: cancelled solve placed %d of 40", r.rc);
+}
+
 } // namespace
 
 int main() {
@@ -334,6 +393,7 @@ int main() {
     test_ties_prefer_the_larger_sheet();
     test_determinism_and_faithful();
     test_cancel_returns_best_so_far();
+    test_compare_sheet_types();
     if (g_failures) {
         std::printf("%d check(s) FAILED\n", g_failures);
         return 1;

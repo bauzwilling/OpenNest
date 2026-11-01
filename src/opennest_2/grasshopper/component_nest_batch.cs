@@ -98,6 +98,7 @@ namespace opennest_2
                 Tok("fit_orientation", "1"),   // past index 8, so the positional mapping above is untouched
                 Tok("sheet_select", "0"),      // parsed by name
                 Tok("sheet_tie", "1"),         // parsed by name (percent)
+                Tok("sheet_compare", "0"),     // parsed by name
                 "exact_nfp 1",
                 Tok("font", "MecSoft_Font-1 1"),
             };
@@ -222,6 +223,7 @@ namespace opennest_2
                 _font = optStrings[optStrings.Count - 1];
                 int allRot = 0, exactNfp = 1, useHoles = 1, preOrient = 1, sheetSelect = 0;
                 double sheetTie = 1;   // "sheet_tie", percent
+                int sheetCompare = 0;  // "sheet_compare": 1 = also try each sheet set alone
                 foreach (var line in optStrings)
                 {
                     var t = line.Split(' ');
@@ -231,6 +233,7 @@ namespace opennest_2
                     if (t.Length >= 2 && t[0] == "fit_orientation" && int.TryParse(t[1], out int fo)) preOrient = fo;
                     if (t.Length >= 2 && t[0] == "sheet_select" && int.TryParse(t[1], out int sv)) sheetSelect = sv;
                     if (t.Length >= 2 && t[0] == "sheet_tie" && double.TryParse(t[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double tv)) sheetTie = tv;
+                    if (t.Length >= 2 && t[0] == "sheet_compare" && int.TryParse(t[1], out int sc)) sheetCompare = sc;
                 }
 
                 if (sheetSelect == 2 && !sheets.HasPriceForEveryType())
@@ -246,7 +249,7 @@ namespace opennest_2
                 var sheetsDup = sheets.duplicate();
                 try
                 {
-                    _engine = new nest_lib.OpenNestBatchEngine(_masterGeo, sheetsDup, parameters, iterations, allRot, exactNfp, useHoles, preOrient, sheetSelect, Math.Max(0, sheetTie) / 100.0);
+                    _engine = new nest_lib.OpenNestBatchEngine(_masterGeo, sheetsDup, parameters, iterations, allRot, exactNfp, useHoles, preOrient, sheetSelect, Math.Max(0, sheetTie) / 100.0, sheetCompare);
                 }
                 catch (Exception ex) { RhinoApp.WriteLine(ex.ToString()); ReleaseEngine(); this.Message = "input error"; return; }
 
@@ -387,6 +390,7 @@ namespace opennest_2
             _font = optStrings[optStrings.Count - 1];
             int allRot = 0, exactNfp = 1, useHoles = 1, preOrient = 1, sheetSelect = 0;
             double sheetTie = 1;   // "sheet_tie", percent
+            int sheetCompare = 0;  // "sheet_compare": 1 = also try each sheet set alone
             foreach (var line in optStrings)
             {
                 var t = line.Split(' ');
@@ -396,6 +400,7 @@ namespace opennest_2
                 if (t.Length >= 2 && t[0] == "fit_orientation" && int.TryParse(t[1], out int fo)) preOrient = fo;
                 if (t.Length >= 2 && t[0] == "sheet_select" && int.TryParse(t[1], out int sv)) sheetSelect = sv;
                 if (t.Length >= 2 && t[0] == "sheet_tie" && double.TryParse(t[1], System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double tv)) sheetTie = tv;
+                if (t.Length >= 2 && t[0] == "sheet_compare" && int.TryParse(t[1], out int sc)) sheetCompare = sc;
             }
 
             if (sheetSelect == 2 && !sheets.HasPriceForEveryType())
@@ -410,7 +415,7 @@ namespace opennest_2
                 gated = EngineGate.Nfp.TryAcquire(_wake);   // best-effort; an embedded host is usually the only solver running
                 _masterGeo = geo.duplicate();
                 var sheetsDup = sheets.duplicate();
-                _engine = new nest_lib.OpenNestBatchEngine(_masterGeo, sheetsDup, parameters, iterations, allRot, exactNfp, useHoles, preOrient, sheetSelect, Math.Max(0, sheetTie) / 100.0);
+                _engine = new nest_lib.OpenNestBatchEngine(_masterGeo, sheetsDup, parameters, iterations, allRot, exactNfp, useHoles, preOrient, sheetSelect, Math.Max(0, sheetTie) / 100.0, sheetCompare);
                 _cancelled = false; _progress = "";
                 _timeoutSecs = OptNum("timeout", 0);
                 _phase = Phase.Computing;

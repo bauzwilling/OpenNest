@@ -322,6 +322,7 @@ NFP_API int nfp_nest_v2(
     const double* sheet_prices,
     int           sheet_selection,
     double        sheet_tie_tolerance,
+    int           compare_sheet_types,
     const NfpParams* params,
     double*       out_tx,
     double*       out_ty,
@@ -345,58 +346,157 @@ NFP_API int nfp_nest_v2(
     }
 
     resetLiveState();
-    NestConfig cfg = toConfig(params);
-    cfg.sheetSelection = sheet_selection;
-    cfg.sheetTieTolerance = sheet_tie_tolerance;
-    if (sheet_prices) cfg.sheetPrices.assign(sheet_prices, sheet_prices + sheet_type_count);
 
-    // Expand each type into copies listed together: an unlimited type gets one copy per part instance
-    // (more can never be opened), a limited one min(N, instances). Every copy of type t has source t, so
-    // the engine groups them as one sheet item (shared inner-fit cache) and the opened sheet's type is
-    // its source.
     long long instances = 0;
     for (int i = 0; i < part_count; i++)
         instances += (part_quantities && part_quantities[i] > 0) ? part_quantities[i] : 1;
-    std::vector<int> svc, shc, shvc, copyType;
-    std::vector<double> sxy, shxy;
-    size_t xyCur = 0, holeIdx = 0, holeXy = 0;
-    for (int t = 0; t < sheet_type_count; t++) {
-        int nv = sheet_vertex_counts[t];
-        int nh = sheet_hole_counts ? sheet_hole_counts[t] : 0;
-        std::vector<int> hvc(sheet_hole_vertex_counts ? sheet_hole_vertex_counts + holeIdx : nullptr,
-                             sheet_hole_vertex_counts ? sheet_hole_vertex_counts + holeIdx + nh : nullptr);
-        size_t holeLen = 0;
-        for (int hv : hvc) holeLen += static_cast<size_t>(hv) * 2;
 
-        long long copies = sheet_quantities[t] < 0 ? instances
-                                                   : std::min<long long>(sheet_quantities[t], instances);
-        for (long long c = 0; c < copies; c++) {
-            svc.push_back(nv);
-            sxy.insert(sxy.end(), sheet_xy + xyCur, sheet_xy + xyCur + static_cast<size_t>(nv) * 2);
-            shc.push_back(nh);
-            shvc.insert(shvc.end(), hvc.begin(), hvc.end());
-            if (holeLen) shxy.insert(shxy.end(), sheet_hole_xy + holeXy, sheet_hole_xy + holeXy + holeLen);
-            copyType.push_back(t);
+    // One run: nest on all sheet types (onlyType < 0) or on one type alone, with `selection` and `runParams`,
+    // into `out`. Each type is expanded into copies listed together: an unlimited type gets one copy per part
+    // instance (more can never be opened), a limited one min(N, instances). Every copy of type t has source t,
+    // so the engine groups them as one sheet item (shared inner-fit cache) and an opened sheet's type is its
+    // source (the ORIGINAL type index, also for a single-type run).
+    struct RunOut {
+        int rc = 0, nSheets = 0;
+        double fitness = 0;
+        std::vector<double> tx, ty, angle;
+        std::vector<int> sid, pidx, stype;
+    };
+    auto solveRun = [&](int onlyType, int selection, const NfpParams& runParams, RunOut& out) {
+        NestConfig cfg = toConfig(&runParams);
+        cfg.sheetSelection = selection;
+        cfg.sheetTieTolerance = sheet_tie_tolerance;
+        if (sheet_prices) cfg.sheetPrices.assign(sheet_prices, sheet_prices + sheet_type_count);
+
+        std::vector<int> svc, shc, shvc, copyType;
+        std::vector<double> sxy, shxy;
+        size_t xyCur = 0, holeIdx = 0, holeXy = 0;
+        for (int t = 0; t < sheet_type_count; t++) {
+            int nv = sheet_vertex_counts[t];
+            int nh = sheet_hole_counts ? sheet_hole_counts[t] : 0;
+            std::vector<int> hvc(sheet_hole_vertex_counts ? sheet_hole_vertex_counts + holeIdx : nullptr,
+                                 sheet_hole_vertex_counts ? sheet_hole_vertex_counts + holeIdx + nh : nullptr);
+            size_t holeLen = 0;
+            for (int hv : hvc) holeLen += static_cast<size_t>(hv) * 2;
+
+            long long copies = (onlyType >= 0 && t != onlyType) ? 0
+                             : sheet_quantities[t] < 0 ? instances
+                                                       : std::min<long long>(sheet_quantities[t], instances);
+            for (long long k = 0; k < copies; k++) {
+                svc.push_back(nv);
+                sxy.insert(sxy.end(), sheet_xy + xyCur, sheet_xy + xyCur + static_cast<size_t>(nv) * 2);
+                shc.push_back(nh);
+                shvc.insert(shvc.end(), hvc.begin(), hvc.end());
+                if (holeLen) shxy.insert(shxy.end(), sheet_hole_xy + holeXy, sheet_hole_xy + holeXy + holeLen);
+                copyType.push_back(t);
+            }
+            xyCur += static_cast<size_t>(nv) * 2;
+            holeIdx += nh;
+            holeXy += holeLen;
         }
-        xyCur += static_cast<size_t>(nv) * 2;
-        holeIdx += nh;
-        holeXy += holeLen;
+
+        NestingContext ctx;
+        ctx.config = cfg;
+        auto instancePart = buildInputs(
+            ctx, part_count, part_vertex_counts, part_xy, part_quantities,
+            part_rotations,
+            part_hole_counts, part_hole_vertex_counts, part_hole_xy,
+            static_cast<int>(svc.size()), svc.data(), sxy.data(),
+            shc.data(), shvc.data(), shxy.data());
+        for (size_t k = 0; k < ctx.Sheets.size(); k++) ctx.Sheets[k]->source = copyType[k];
+
+        size_t n = static_cast<size_t>(instances);
+        out.tx.assign(n, 0); out.ty.assign(n, 0); out.angle.assign(n, 0);
+        out.sid.assign(n, -1); out.pidx.assign(n, -1); out.stype.assign(n, -1);
+        out.rc = runSolve(ctx, cfg, &runParams, instancePart, [&](const NestingContext& rc) {
+            return readOutputsV2(rc, instancePart, out.tx.data(), out.ty.data(), out.angle.data(),
+                                 out.sid.data(), out.pidx.data(), out.stype.data(), &out.nSheets, &out.fitness);
+        });
+    };
+
+    auto emit = [&](const RunOut& r) {
+        if (r.rc < 0) return r.rc;
+        std::copy(r.tx.begin(), r.tx.end(), out_tx);
+        std::copy(r.ty.begin(), r.ty.end(), out_ty);
+        std::copy(r.angle.begin(), r.angle.end(), out_angle);
+        std::copy(r.sid.begin(), r.sid.end(), out_sheet_id);
+        std::copy(r.pidx.begin(), r.pidx.end(), out_part_index);
+        if (out_sheet_type) std::copy(r.stype.begin(), r.stype.begin() + std::max(0, r.nSheets), out_sheet_type);
+        if (out_n_sheets) *out_n_sheets = r.nSheets;
+        if (out_fitness) *out_fitness = r.fitness;
+        return r.rc;
+    };
+
+    const bool compare = compare_sheet_types != 0 && (sheet_selection == 1 || sheet_selection == 2) &&
+                         sheet_type_count > 1;
+    if (!compare) {
+        RunOut r;
+        solveRun(-1, sheet_selection, *params, r);
+        return emit(r);
     }
 
-    NestingContext ctx;
-    ctx.config = cfg;
-    auto instancePart = buildInputs(
-        ctx, part_count, part_vertex_counts, part_xy, part_quantities,
-        part_rotations,
-        part_hole_counts, part_hole_vertex_counts, part_hole_xy,
-        static_cast<int>(svc.size()), svc.data(), sxy.data(),
-        shc.data(), shvc.data(), shxy.data());
-    for (size_t k = 0; k < ctx.Sheets.size(); k++) ctx.Sheets[k]->source = copyType[k];
+    // ---- Compare: the per-sheet run, then each sheet type alone; keep the best whole layout ----
+    auto ringArea = [](const double* xy, int nv) {
+        double a = 0;
+        for (int k = 0; k < nv; k++) {
+            int j = (k + 1) % nv;
+            a += xy[2 * k] * xy[2 * j + 1] - xy[2 * j] * xy[2 * k + 1];
+        }
+        return std::fabs(a) / 2;
+    };
+    std::vector<double> partArea(part_count), typeArea(sheet_type_count);
+    for (int i = 0, cur = 0; i < part_count; cur += part_vertex_counts[i] * 2, i++)
+        partArea[i] = ringArea(part_xy + cur, part_vertex_counts[i]);
+    for (int t = 0, cur = 0; t < sheet_type_count; cur += sheet_vertex_counts[t] * 2, t++)
+        typeArea[t] = ringArea(sheet_xy + cur, sheet_vertex_counts[t]);
 
-    return runSolve(ctx, cfg, params, instancePart, [&](const NestingContext& rc) {
-        return readOutputsV2(rc, instancePart, out_tx, out_ty, out_angle,
-                             out_sheet_id, out_part_index, out_sheet_type, out_n_sheets, out_fitness);
-    });
+    struct Score { double unplaced, cost; int sheets; };
+    auto score = [&](const RunOut& r) {
+        Score s{0, 0, std::max(0, r.nSheets)};
+        for (size_t k = 0; k < r.sid.size(); k++)
+            if (r.sid[k] < 0 && r.pidx[k] >= 0 && r.pidx[k] < part_count) s.unplaced += partArea[r.pidx[k]];
+        for (int k = 0; k < r.nSheets; k++) {
+            int t = r.stype[k];
+            if (t < 0 || t >= sheet_type_count) continue;
+            s.cost += sheet_selection == 2 ? sheet_prices[t] : typeArea[t];
+        }
+        return s;
+    };
+    // a better than b: less unplaced area; then less cost, where costs within the tie margin are equal and
+    // fewer sheets wins.
+    auto better = [&](const Score& a, const Score& b) {
+        double ut = 1e-6 * std::max(1.0, std::max(a.unplaced, b.unplaced));
+        if (std::fabs(a.unplaced - b.unplaced) > ut) return a.unplaced < b.unplaced;
+        double ct = std::max(1e-9, sheet_tie_tolerance) * std::max(1.0, std::max(a.cost, b.cost));
+        if (std::fabs(a.cost - b.cost) > ct) return a.cost < b.cost;
+        return a.sheets < b.sheets;
+    };
+
+    const int runs = sheet_type_count + 1;
+    NfpParams runParams = *params;
+    runParams.generations = std::max(1, (params->generations + runs - 1) / runs);
+    if (params->timeBudgetSecs > 0) runParams.timeBudgetSecs = params->timeBudgetSecs / runs;
+
+    RunOut best;
+    Score bestScore{};
+    bool haveBest = false;
+    for (int run = 0; run < runs; run++) {
+        RunOut r;
+        if (run == 0) solveRun(-1, sheet_selection, runParams, r);   // the per-sheet choice, all types
+        else          solveRun(run - 1, 0, runParams, r);            // type run-1 alone, list order
+        if (r.rc >= 0) {
+            Score s = score(r);
+            if (!haveBest || better(s, bestScore)) {
+                best = std::move(r);
+                bestScore = s;
+                haveBest = true;
+            }
+        } else if (!haveBest) {
+            best = std::move(r);   // keep the error if nothing succeeds
+        }
+        if (g_cancel.load()) break;   // a time limit / cancel: skip the remaining runs
+    }
+    return emit(best);
 }
 
 namespace {
