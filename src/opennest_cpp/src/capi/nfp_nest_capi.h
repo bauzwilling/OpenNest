@@ -37,7 +37,8 @@ typedef struct NfpParams {
     int    mode;            // 0=faithful (parity, single-thread), 1=default, 2=turbo (multi-seed)
     int    generations;     // GA generations (== component "Iterations")
     int    numSeeds;        // turbo: parallel independent seeds
-    int    useParallel;     // bool: parallel NFP / population evaluation
+    int    useParallel;     // bool: parallel NFP / population evaluation (modes 1 and 2: each step evaluates a
+                            // whole generation's candidates in parallel; in turbo, every seed does)
     double timeBudgetSecs;  // >0 => run until elapsed (overrides generations loop length)
     int    maxSheets;       // 0 = use all provided sheets
     int    edgeSamples;     // feasible-region edge samples per part (0=off; lower=faster)

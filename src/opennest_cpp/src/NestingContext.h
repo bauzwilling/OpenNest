@@ -50,7 +50,11 @@ public:
         int iterationsPerSeed,
         std::function<void(int seed, int iter, const NestingContext&)> progressCallback = nullptr,
         // Polled after every step of every seed; true stops all seeds and returns the best so far (nfp_cancel).
-        std::function<bool()> shouldStop = nullptr);
+        std::function<bool()> shouldStop = nullptr,
+        // true: each seed evaluates a whole GA generation per step, its candidates in parallel
+        // (NestIterateGeneration, result-equivalent to one candidate per step), and iterationsPerSeed counts
+        // generations; false: one candidate per step, iterationsPerSeed counts candidates.
+        bool generationParallel = false);
 
     NestConfig config;  // per-context config (different seed for multi-seed)
     NestingEngine Nest;

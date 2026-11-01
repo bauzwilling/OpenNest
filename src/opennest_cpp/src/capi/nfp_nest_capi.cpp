@@ -513,15 +513,20 @@ int runSolve(NestingContext& ctx, const NestConfig& cfg, const NfpParams* params
     NfpWorker::UseParallel = (mode == 0) ? false : (params->useParallel != 0);
 
     if (mode == 2) {
-        // Turbo: independent parallel seeds, keep best.
+        // Turbo: independent parallel seeds, keep best. With useParallel each seed evaluates a whole
+        // generation per step, its candidates in parallel (result-equivalent to one candidate per step, but
+        // it uses every core instead of about one per seed); then the step count is in generations.
         int numSeeds = params->numSeeds > 0 ? params->numSeeds : 4;
+        const bool seedGenParallel = (params->useParallel != 0) && (std::getenv("NFP_FORCE_SERIAL") == nullptr);
         auto best = NestingContext::RunParallelSeeds(
-            ctx.Polygons, ctx.Sheets, cfg, numSeeds, static_cast<int>(totalSteps),
+            ctx.Polygons, ctx.Sheets, cfg, numSeeds, static_cast<int>(seedGenParallel ? gens : totalSteps),
             [&](int /*seed*/, int iter, const NestingContext& c) {
-                if (iter > g_progress) g_progress = iter;
+                long gen = seedGenParallel ? iter : (iter - 1) / pop + 1;   // progress is in generations
+                if (gen > g_progress) g_progress = gen;
                 if (c.HasCurrent()) g_fitness = c.Current().fitness.value_or(0.0);
             },
-            [] { return g_cancel.load(); });   // nfp_cancel stops every seed; the best so far is returned
+            [] { return g_cancel.load(); },   // nfp_cancel stops every seed; the best so far is returned
+            seedGenParallel);
         updateSnapshot(best, instancePart);
         return read(best);
     }

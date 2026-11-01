@@ -290,7 +290,7 @@ namespace {
 
 // --- Static member initialization ---
 bool NfpWorker::EnableCaches = true;
-bool NfpWorker::UseParallel = false;
+thread_local bool NfpWorker::UseParallel = false;
 
 // =============================================================================
 // Simple utility methods
