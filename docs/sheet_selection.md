@@ -176,9 +176,10 @@ and returns the **best whole layout**: least unplaced part area, then least tota
 (mode 2), where totals within `sheet_tie_tolerance` are equal and **fewer sheets** wins; an exact tie keeps the
 earlier run (the per-sheet one first). `out_sheet_type` always holds the original type index.
 
-- **Same total work.** Each of the `types + 1` runs gets `ceil(generations / (types + 1))` generations, and a
-  `timeBudgetSecs` is split the same way. So with few iterations each run searches less than one full solve;
-  raise the iterations to give every run a real search.
+- **Full search per run.** Each of the `types + 1` runs gets the full `generations`, so every run searches as
+  long as a plain solve and the per-sheet run alone equals it; compare takes about `types + 1` times as long. A
+  `timeBudgetSecs` is a total and is split between the runs. (Before, the generations were split too, which made
+  each run search less than the plain solve, so compare could return a worse layout than compare off.)
 - **Cancel / time limit.** `nfp_cancel` stops the running run (it returns its best so far), the remaining runs
   are skipped, and the best finished layout is returned.
 - Off by default; ignored with mode 0, in faithful mode (it ignores selection) and with a single type.
@@ -246,7 +247,7 @@ These changes live in NestingService, after this fork release:
    many parts, on valid sheets.
 8. **Batch:** stock is respected across batches, and output sheets use their own type's outline.
 9. **Compare types (§4.5):** in modes 1 and 2 the result equals the best of the per-sheet run and the single-type
-   runs, each run separately with the split generations; off, mode 0 or one type gives the plain solve; a
+   runs, each run separately with the full generations; off, mode 0 or one type gives the plain solve; a
    cancel during the first run returns a full layout.
 
 ## 9. Keeping the fork and NestingService in step
@@ -268,5 +269,6 @@ These changes live in NestingService, after this fork release:
    small sheets, same area" into 30 small ones). Per sheet, a near-tie (within `sheet_tie_tolerance`, default 1%)
    opens the larger sheet; per layout, a near-tie on total cost goes to fewer sheets.
 4. **Comparing whole layouts is optional** (`compare_sheet_types`, default off). Per-sheet choice usually wins on
-   area, but one sheet size alone sometimes needs fewer sheets for the same area or less. Comparing costs no
-   extra time (the generations are split), but each run searches less, so it is the caller's choice.
+   area, but one sheet size alone sometimes needs fewer sheets for the same area or less. Comparing gives every
+   run the full generations, so it never searches less than the plain solve but takes about `types + 1` times as
+   long; it is the caller's choice.

@@ -343,7 +343,7 @@ void test_turbo_generation_parallel() {
     }
 }
 
-// compare_sheet_types: the per-sheet run, then each type alone, each with ceil(generations / (types + 1));
+// compare_sheet_types: the per-sheet run, then each type alone, each with the full generations;
 // the result is the best of those whole layouts (least unplaced, then least cost within the tie margin,
 // then fewer sheets). Serial runs are reproducible, so the winner must equal one of the separate runs.
 void test_compare_sheet_types() {
@@ -353,15 +353,13 @@ void test_compare_sheet_types() {
         const int parts = 55;
         NfpParams p = params(7);
         p.generations = 6;
-        NfpParams sub = p;
-        sub.generations = (p.generations + 3) / 4;   // 4 runs: per-sheet + 3 types
 
         Result cmp = runV2(parts, types, selection, p, 200, 100, 0.01, 1);
         CHECK(cmp.rc >= 0, "selection %d: rc %d", selection, cmp.rc);
         checkOutputs(cmp, 3, "compare");
 
-        std::vector<Result> runs{runV2(parts, types, selection, sub)};
-        for (size_t t = 0; t < types.size(); t++) runs.push_back(runV2(parts, {types[t]}, 0, sub));
+        std::vector<Result> runs{runV2(parts, types, selection, p)};
+        for (size_t t = 0; t < types.size(); t++) runs.push_back(runV2(parts, {types[t]}, 0, p));
         auto cost = [&](const Result& r) { return selection == 2 ? r.totalPrice : r.totalArea; };
         size_t best = 0;
         for (size_t k = 1; k < runs.size(); k++) {

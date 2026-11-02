@@ -99,8 +99,8 @@ NFP_API int nfp_nest(
 //   compare_sheet_types: 0 = off. 1 (with selection 1 or 2 and more than one sheet type) = also nest with
 //                        EACH sheet type alone and return the best whole layout: least unplaced area, then
 //                        least total area / price (within sheet_tie_tolerance: fewer sheets wins). The
-//                        per-sheet run goes first, then one run per type; the generations (and a time budget)
-//                        are shared between the runs, so the total work stays about the same. nfp_cancel stops
+//                        per-sheet run goes first, then one run per type; each run gets the full generations
+//                        (about types + 1 times the work), a time budget is split between them. nfp_cancel stops
 //                        the running run and skips the rest; the best finished layout is returned.
 //                        Faithful mode (params->mode == 0) always uses list order.
 // Outputs per instance as nfp_nest, except out_sheet_id numbers the OPENED sheets 0..n_sheets-1 in the

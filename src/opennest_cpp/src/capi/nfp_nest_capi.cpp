@@ -473,8 +473,9 @@ NFP_API int nfp_nest_v2(
     };
 
     const int runs = sheet_type_count + 1;
+    // Every run gets the full generations (splitting them makes each run search less than the plain solve,
+    // so compare could lose to it); a time budget is a total, so it is split between the runs.
     NfpParams runParams = *params;
-    runParams.generations = std::max(1, (params->generations + runs - 1) / runs);
     if (params->timeBudgetSecs > 0) runParams.timeBudgetSecs = params->timeBudgetSecs / runs;
 
     RunOut best;
