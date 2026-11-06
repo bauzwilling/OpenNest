@@ -1,0 +1,143 @@
+name: Build DataB_OpenNest (macOS package)
+
+# Builds the private DataB_OpenNest Yak package for macOS (Rhino 8) from ANY ref, so every Windows release
+# (scripts/build_yak.ps1 -> grasshopper_plugin/datab_opennest_win/) can get a matching -mac package. The
+# .dylib engines can only be compiled on a Mac, which is why this can't be done by the local Windows script.
+#
+# Manual only. It does NOT push to Yak and does NOT commit: the finished .yak plus the loose package files are
+# uploaded as the "datab_opennest_mac" run artifact. Download it, drop its contents into
+# grasshopper_plugin/datab_opennest_mac/ (replacing the old .yak), and commit.
+#
+# The version is read from grasshopper_plugin/datab_opennest_win/manifest.yml AT THE BUILT REF, so the mac
+# package always carries the same version as the Windows package built from that commit. Nothing is bumped.
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Branch, tag or commit to build (use the same one the Windows package was built from)"
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  # 1) macOS: universal (x86_64 + arm64) engines.
+  dylibs:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Build native engines (universal x86_64 + arm64)
+        run: |
+          set -e
+          ARCH="-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64"
+          cmake -S src/opennest_cpp     -B src/opennest_cpp/build     -DCMAKE_BUILD_TYPE=Release "$ARCH"
+          cmake --build src/opennest_cpp/build --target nfp_nest -j3
+          cmake -S src/nest_physics_cpp -B src/nest_physics_cpp/build -DCMAKE_BUILD_TYPE=Release "$ARCH"
+          cmake --build src/nest_physics_cpp/build --target nest_physics -j3
+
+      - name: Stage + verify universal dylibs (must list arm64 + x86_64)
+        run: |
+          set -e
+          mkdir -p mac_out
+          cp src/opennest_cpp/build/nfp_nest.dylib         mac_out/
+          cp src/nest_physics_cpp/build/nest_physics.dylib mac_out/
+          for f in mac_out/*.dylib; do
+            a=$(lipo -archs "$f"); echo "$f: $a"
+            case "$a" in *arm64*x86_64*|*x86_64*arm64*) ;; *) echo "::error::$f is not universal"; exit 1;; esac
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-dylibs
+          path: mac_out/*.dylib
+          if-no-files-found: error
+
+  # 2) Windows: build the portable net7.0 .gha + command .rhp and assemble the -mac .yak with yak.exe
+  #    (same split as publish.yml: yak.exe can tag either platform).
+  package:
+    needs: dylibs
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Read version from the Windows manifest
+        id: ver
+        shell: pwsh
+        run: |
+          $c = Get-Content grasshopper_plugin/datab_opennest_win/manifest.yml -Raw
+          if ($c -notmatch '(?m)^version:\s*(\d+)\.(\d+)\.(\d+)\.(\d+)\s*$') { throw "version not found" }
+          "full=$($Matches[1]).$($Matches[2]).$($Matches[3]).$($Matches[4])" | Out-File $env:GITHUB_OUTPUT -Append
+          "short=$($Matches[1]).$($Matches[2]).$($Matches[3])"               | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Build DataB.OpenNest.gha + opennest_commands.rhp (net7.0, macOS-compatible)
+        run: |
+          dotnet build src/opennest_2/opennest_2.csproj -c Release -f net7.0
+          dotnet build src/opennest_commands/opennest_commands.csproj -c Release -f net7.0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-dylibs
+          path: mac_dylibs
+
+      - name: Install Yak CLI
+        shell: pwsh
+        run: Invoke-WebRequest -Uri "https://files.mcneel.com/yak/tools/latest/yak.exe" -OutFile "$PWD/yak.exe"
+
+      - name: Stage + build the -mac .yak
+        shell: pwsh
+        run: |
+          $full  = "${{ steps.ver.outputs.full }}"
+          $short = "${{ steps.ver.outputs.short }}"
+          $stage = "datab_opennest_mac"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+
+          # Flat layout (same as the committed 2.89.x mac packages): .gha + its managed deps at the root.
+          Copy-Item "src/opennest_2/bin/Release/net7.0/*" $stage -Recurse -Force
+          Remove-Item "$stage/*.pdb","$stage/nfp_nest.dll","$stage/nest_physics.dll" -Force -ErrorAction SilentlyContinue
+          Copy-Item "mac_dylibs/*.dylib" $stage -Force
+
+          $cmd = "src/opennest_commands/bin/Release/net7.0"
+          Copy-Item "$cmd/opennest_commands.rhp","$cmd/opennest_commands.deps.json","$cmd/opennest_commands.runtimeconfig.json" $stage -Force
+
+          # Manifest/icon/notice come from the committed mac folder; the version is forced to the Windows one.
+          $m = Get-Content grasshopper_plugin/datab_opennest_mac/manifest.yml -Raw
+          ($m -replace '(?m)^version:\s*[0-9.]+', "version: $full") | Set-Content "$stage/manifest.yml" -NoNewline
+          Copy-Item grasshopper_plugin/datab_opennest_mac/icon.png $stage -Force
+          Copy-Item NOTICE.md, LICENSE $stage -Force -ErrorAction SilentlyContinue
+
+          foreach ($f in "DataB.OpenNest.gha","nfp_nest.dylib","nest_physics.dylib","opennest_commands.rhp","manifest.yml") {
+            if (-not (Test-Path "$stage/$f")) { throw "missing $f in the staged package" }
+          }
+
+          $yakName = "datab_opennest-$short-rh8_0-mac.yak"
+          Push-Location $stage
+          & "$env:GITHUB_WORKSPACE/yak.exe" build --platform mac
+          Pop-Location
+          $built = Get-ChildItem "$stage/*.yak" | Select-Object -First 1
+          if ($built) {
+            # The standalone yak.exe may tag -any-; the package targets Rhino 8 (net7.0 / RhinoCommon 8).
+            if ($built.Name -ne $yakName) { Rename-Item $built.FullName $yakName; Write-Host "Retagged $($built.Name) -> $yakName" }
+          } else {
+            # The deprecated standalone yak.exe can crash (Content.GetInspector NRE). A .yak is a plain zip of the
+            # package folder, so fall back to zipping it ourselves.
+            Write-Host "::warning::yak build produced no package; zipping the staged folder as $yakName instead"
+            Compress-Archive -Path "$stage/*" -DestinationPath "$env:RUNNER_TEMP/pkg.zip" -Force
+            Move-Item "$env:RUNNER_TEMP/pkg.zip" "$stage/$yakName"
+          }
+          Get-ChildItem $stage -Recurse | Select-Object FullName, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: datab_opennest_mac
+          path: datab_opennest_mac/
+          if-no-files-found: error
