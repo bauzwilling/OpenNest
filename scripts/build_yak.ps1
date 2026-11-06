@@ -6,6 +6,9 @@
 #
 #     grasshopper_plugin/datab_opennest_win/manifest.yml   ->   version: X.Y.Z.0
 #
+# This produces the WINDOWS package only (no .dylib). Macs need the matching -mac package: run the
+# "Build DataB_OpenNest (macOS package)" workflow (.github/workflows/datab_mac.yml) on the same ref.
+#
 #   pwsh scripts/build_yak.ps1
 #
 # yak.exe is downloaded to the repo root if missing and deleted afterward (never committed).
