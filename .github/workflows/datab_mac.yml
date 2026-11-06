@@ -4,13 +4,23 @@ name: Build DataB_OpenNest (macOS package)
 # (scripts/build_yak.ps1 -> grasshopper_plugin/datab_opennest_win/) can get a matching -mac package. The
 # .dylib engines can only be compiled on a Mac, which is why this can't be done by the local Windows script.
 #
-# Manual only. It does NOT push to Yak and does NOT commit: the finished .yak plus the loose package files are
+# Triggers:
+#   - push of a release tag v*        -> builds that tag automatically (every DataB release gets a mac package)
+#   - push to a branch datab-mac/**   -> builds that branch; use it to build an OLD ref whose tree predates this
+#                                        file: branch off the tag, add only this workflow file, push
+#   - manual run (workflow_dispatch)  -> builds `source_ref` (only available once this file is on main)
+# Push triggers read the workflow from the pushed ref itself, so they work on any branch, not just main.
+#
+# It does NOT push to Yak and does NOT commit: the finished .yak plus the loose package files are
 # uploaded as the "datab_opennest_mac" run artifact. Download it, drop its contents into
 # grasshopper_plugin/datab_opennest_mac/ (replacing the old .yak), and commit.
 #
 # The version is read from grasshopper_plugin/datab_opennest_win/manifest.yml AT THE BUILT REF, so the mac
 # package always carries the same version as the Windows package built from that commit. Nothing is bumped.
 on:
+  push:
+    tags: ['v*']
+    branches: ['datab-mac/**']
   workflow_dispatch:
     inputs:
       source_ref:
@@ -28,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - name: Build native engines (universal x86_64 + arm64)
         run: |
@@ -64,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ inputs.source_ref || github.sha }}
 
       - uses: actions/setup-dotnet@v4
         with:
