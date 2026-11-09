@@ -308,7 +308,30 @@ namespace opennest_2
                 }
             }
             catch { /* fall through: default layout */ }
+
+            // The Batch option "Spread In Batch" (input 3, after Distribution) was removed. A Batch-layout file
+            // saved before that archives one input chunk more, and GH1 binds chunks BY INDEX — every input from
+            // Max Rounds on would take its predecessor's value. Bind against a temporary placeholder at index 3,
+            // then drop it (and any wire into it).
+            try
+            {
+                int archived = 0;
+                while (reader.FindChunk("param_input", archived) != null) archived++;
+                if (_solver == SOLVER_BATCH && archived == Params.Input.Count + 1)
+                {
+                    var legacy = new Param_Integer { Name = "Spread In Batch", NickName = "Spread In Batch", Optional = true };
+                    Params.RegisterInputParam(legacy, LegacySpreadInputIndex);
+                    bool ok = base.Read(reader);
+                    Params.UnregisterInputParameter(legacy, true);
+                    Params.OnParametersChanged();
+                    return ok;
+                }
+            }
+            catch { /* fall through to a plain read */ }
             return base.Read(reader);
         }
+
+        // Where the removed Batch "Spread In Batch" input sat: Solver, Batch Size, Distribution, [Spread In Batch].
+        private const int LegacySpreadInputIndex = 3;
     }
 }

@@ -13,7 +13,7 @@ namespace opennest_2
     // the same Geometry input as the solver components, expands copies to instances exactly like
     // OpenNestBatchEngine.BuildDescriptors, hands them to the chosen distributor (nest_lib.batch.*), and lays
     // the resulting batches out in a grid so you can see — and diagnose — how the parts were split. Useful for
-    // comparing distribution methods (Area Balanced / Area Snake / Multi-Feature Stratified) in isolation,
+    // comparing distribution methods (Area Balanced / Sequential) in isolation,
     // without waiting on a full nest.
     public class component_batch_distribution : GH_Component
     {
@@ -34,10 +34,30 @@ namespace opennest_2
             pManager.AddGenericParameter("Geometry", "Geometry", "From OpenNest tab, use component Geometry.", GH_ParamAccess.item);
             pManager.AddIntegerParameter("Batch Size", "Batch Size", "Max parts per batch (same as OpenNest2 Batch). Batch count = ceil(parts / batch size).", GH_ParamAccess.item, 50);
             pManager.AddIntegerParameter("Distribution", "Distribution", BuildDistributionHelp(), GH_ParamAccess.item, 0);
-            pManager.AddBooleanParameter("Spread", "Spread", "Reorder each batch's feed order (large/small alternating), as the batch nester does. Applies to area-aware distributions.", GH_ParamAccess.item, true);
             pManager[1].Optional = true;
             pManager[2].Optional = true;
-            pManager[3].Optional = true;
+        }
+
+        // Files saved before the "Spread" input (index 3) was removed archive 4 input chunks. Bind them against
+        // a temporary trailing placeholder so the chunk count matches, then drop it (and any wire into it).
+        public override bool Read(GH_IO.Serialization.GH_IReader reader)
+        {
+            try
+            {
+                int archived = 0;
+                while (reader.FindChunk("param_input", archived) != null) archived++;
+                if (archived == 4 && Params.Input.Count == 3)
+                {
+                    var legacy = new Grasshopper.Kernel.Parameters.Param_Boolean { Name = "Spread", NickName = "Spread", Optional = true };
+                    Params.RegisterInputParam(legacy);
+                    bool ok = base.Read(reader);
+                    Params.UnregisterInputParameter(legacy, true);
+                    Params.OnParametersChanged();
+                    return ok;
+                }
+            }
+            catch { /* fall through to a plain read */ }
+            return base.Read(reader);
         }
 
         protected override void RegisterOutputParams(GH_Component.GH_OutputParamManager pManager)
@@ -68,7 +88,6 @@ namespace opennest_2
             int batchSize = 50; DA.GetData(1, ref batchSize); batchSize = Math.Max(1, batchSize);
             int distIndex = 0; DA.GetData(2, ref distIndex);
             var distributor = nest_lib.batch.DistributorRegistry.ByIndex(distIndex);
-            bool spread = true; DA.GetData(3, ref spread);
             Message = distributor.Label;
 
             var boundaries = geo.boundary_sorted;
@@ -110,13 +129,6 @@ namespace opennest_2
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Error, distributor.Label + ": " + ex.Message);
                 return;
             }
-
-            // Spread each batch's order (large/small alternating) instead of the distributor's sorted run —
-            // the same post-step the batch nester applies before feeding a batch to the engine. Optional (Spread
-            // input) and skipped for distributors whose item order is meaningful (e.g. Sequential).
-            if (spread && distributor.SpreadWithinBatch)
-                nest_lib.batch.BatchOrdering.SpreadWithinBatches(batches,
-                    id => { int g = id >= 0 && id < instanceGroup.Count ? instanceGroup[id] : -1; return g >= 0 && g < areas.Count ? areas[g] : 0.0; });
 
             var outlines = new GH_Structure<GH_Curve>();
             var partGroup = new GH_Structure<GH_Integer>();

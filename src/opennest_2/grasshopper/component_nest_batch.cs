@@ -209,7 +209,6 @@ namespace opennest_2
                 int batchSize = (int)Math.Max(1, OptNum("batch_size", 50));
                 int maxRounds = (int)Math.Max(1, OptNum("max_rounds", 12));
                 var distributor = nest_lib.batch.DistributorRegistry.ByIndex(OptChoiceIndex("distribution", 0));
-                bool spreadInBatch = OptChoiceIndex("spread_within_batch", 1) != 0;
 
                 // Engine options -> parameters list (parameters[0..8] by index, like rhino_example expects).
                 var optStrings = BuildEngineOptionStrings();
@@ -261,8 +260,7 @@ namespace opennest_2
 
                 int bs = batchSize, mr = maxRounds;
                 var dist = distributor;
-                bool spread = spreadInBatch;
-                _task = new System.Threading.Tasks.Task(() => RunOrchestration(bs, mr, dist, spread));
+                _task = new System.Threading.Tasks.Task(() => RunOrchestration(bs, mr, dist));
                 return;
             }
 
@@ -324,7 +322,6 @@ namespace opennest_2
             var tokens = BuildEngineOptionStrings();
             tokens.Add("batch_size " + (int)Math.Max(1, OptNum("batch_size", 50)));
             tokens.Add("distribution " + OptChoiceIndex("distribution", 0));
-            tokens.Add("spread_within_batch " + OptChoiceIndex("spread_within_batch", 1));
             tokens.Add("max_rounds " + (int)Math.Max(1, OptNum("max_rounds", 12)));
             if (s != null) tokens.Add(s.StockSignature());   // re-solve when only Quantity / Price change
             _pendingSig = SigOf(s, g, it, tokens);
@@ -340,22 +337,21 @@ namespace opennest_2
             }
         }
 
-        private void RunOrchestrationCore(int batchSize, int maxRounds, nest_lib.batch.IPartDistributor distributor, bool spreadInBatch)
+        private void RunOrchestrationCore(int batchSize, int maxRounds, nest_lib.batch.IPartDistributor distributor)
         {
             var orch = new nest_lib.batch.BatchNestOrchestrator(_engine, distributor, batchSize, maxRounds)
             {
                 IsCancelled = () => _cancelled,
                 OnProgress = msg => _progress = msg,
-                SpreadWithinBatch = spreadInBatch,
             };
             var descriptors = _engine.BuildDescriptors();
             _plan = orch.Run(descriptors);
             _placements = _engine.BuildFinalPlacements(_plan);
         }
 
-        private void RunOrchestration(int batchSize, int maxRounds, nest_lib.batch.IPartDistributor distributor, bool spreadInBatch)
+        private void RunOrchestration(int batchSize, int maxRounds, nest_lib.batch.IPartDistributor distributor)
         {
-            try { RunOrchestrationCore(batchSize, maxRounds, distributor, spreadInBatch); }
+            try { RunOrchestrationCore(batchSize, maxRounds, distributor); }
             catch (Exception ex) { RhinoApp.WriteLine(ex.ToString()); }
             finally { ReleaseEngine(); }
             _phase = Phase.Ready;
@@ -377,7 +373,6 @@ namespace opennest_2
             int batchSize = (int)Math.Max(1, OptNum("batch_size", 50));
             int maxRounds = (int)Math.Max(1, OptNum("max_rounds", 12));
             var distributor = nest_lib.batch.DistributorRegistry.ByIndex(OptChoiceIndex("distribution", 0));
-            bool spreadInBatch = OptChoiceIndex("spread_within_batch", 1) != 0;
 
             var optStrings = BuildEngineOptionStrings();
             var parameters = new List<double>();
@@ -420,7 +415,7 @@ namespace opennest_2
                 _timeoutSecs = OptNum("timeout", 0);
                 _phase = Phase.Computing;
                 _timeout.Start(_timeoutSecs, TimeoutCancel);
-                RunOrchestrationCore(batchSize, maxRounds, distributor, spreadInBatch);
+                RunOrchestrationCore(batchSize, maxRounds, distributor);
                 _phase = Phase.Ready;
                 AssembleOutputs(DA);
             }

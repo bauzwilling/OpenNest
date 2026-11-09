@@ -73,13 +73,10 @@ namespace nest_lib.batch
         string Label { get; }
         // One-line tooltip.
         string Description { get; }
-        // Whether the consumer may reorder the items WITHIN each batch for a better engine feed order (see
-        // BatchOrdering.SpreadWithinBatches). True for area/shape-aware methods, whose within-batch order is
-        // just an artifact of sorting; FALSE for methods whose item order is meaningful (Sequential keeps
-        // spatial adjacency, Round-Robin keeps input order).
-        bool SpreadWithinBatch { get; }
         // Partition `parts` into batches; each batch is a list of instance Ids. No instance is dropped or
-        // duplicated; batch sizes are <= batchSize (the last may be smaller).
+        // duplicated; batch sizes are <= batchSize (the last may be smaller). Only membership matters: the
+        // native engine re-sorts each batch largest-area-first before nesting, so the order within a batch
+        // has no effect on the layout.
         List<List<int>> Distribute(IReadOnlyList<PartDescriptor> parts, int batchSize);
     }
 
@@ -115,11 +112,6 @@ namespace nest_lib.batch
         // Optional cooperative cancel + progress hooks (wired to the GH component's ESC / live label).
         public Func<bool> IsCancelled;
         public Action<string> OnProgress;
-
-        // When true (default), each batch's feed order is spread (large/small alternating) for a better nest,
-        // but only for distributors that allow it (IPartDistributor.SpreadWithinBatch). Set false to feed each
-        // batch in the distributor's own order untouched.
-        public bool SpreadWithinBatch = true;
 
         public BatchNestOrchestrator(IBatchNestEngine engine, IPartDistributor distributor,
                                      int batchSize, int maxRounds = 12)
@@ -204,11 +196,6 @@ namespace nest_lib.batch
 
                 var descriptors = remaining.Select(id => descOf.TryGetValue(id, out var d) ? d : new PartDescriptor(id, 0.0)).ToList();
                 var batches = activeDistributor.Distribute(descriptors, _batchSize);
-                // Spread each batch's feed order (large/small alternating) rather than the distributor's sorted
-                // run — a mixed order nests better than a monotonic one. Membership is unchanged. Optional (user
-                // toggle) and skipped for distributors whose item order is meaningful (e.g. Sequential).
-                if (SpreadWithinBatch && activeDistributor.SpreadWithinBatch)
-                    BatchOrdering.SpreadWithinBatches(batches, id => descOf.TryGetValue(id, out var d) ? d.Area : 0.0);
                 Log(plan, $"round {round}: {remaining.Count} part(s) -> {batches.Count} batch(es) of <= {_batchSize}");
 
                 var nextLeftover = new List<int>();

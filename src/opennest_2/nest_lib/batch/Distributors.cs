@@ -40,60 +40,6 @@ namespace nest_lib.batch
         public static int BatchCount(int n, int batchSize) => Math.Max(1, (int)Math.Ceiling(n / (double)Math.Max(1, batchSize)));
     }
 
-    // POST-DISTRIBUTION ORDERING. The distributors decide WHICH parts go in each batch; they append them in
-    // sorted order (largest area first), so within a batch the parts run monotonically big->small. That's a
-    // poor feed order for the nester — a stretch of same-size parts packs worse than an alternating mix.
-    // SpreadBySortedKey permutes a single batch so a numeric key (typically area) is DISPERSED: consecutive
-    // items jump across the full range (large, small, large, ...) instead of running in sorted order.
-    // Membership is never changed — this only reorders each batch, and it is fully deterministic.
-    public static class BatchOrdering
-    {
-        // Sort the batch by key (descending, Id tie-break), then emit the sorted ranks in a low-discrepancy
-        // order — a radix-2 bit-reversal / van der Corput permutation. Position 0 is the biggest, then the
-        // sequence keeps bisecting: halves, then quarters, then eighths of the range. Any prefix is spread as
-        // evenly as possible over the whole size range, and because it interleaves at every scale there is no
-        // period, no ramp and no sorted tail — unlike a fixed-stride deal. Deterministic; membership unchanged.
-        public static List<int> SpreadBySortedKey(IReadOnlyList<int> ids, Func<int, double> keyOf)
-        {
-            int n = ids == null ? 0 : ids.Count;
-            if (n <= 2) return ids == null ? new List<int>() : new List<int>(ids); // nothing to spread
-            var sorted = ids.OrderByDescending(keyOf).ThenBy(id => id).ToList();
-            var result = new List<int>(n);
-            foreach (int rank in LowDiscrepancyOrder(n)) result.Add(sorted[rank]);
-            return result;
-        }
-
-        // Ranks 0..n-1 in bit-reversed index order. Round n up to a power of two, walk 0..N-1, bit-reverse
-        // each index, and keep those that land in range — the reversal is a bijection, so every rank is hit
-        // exactly once, and the kept order stays low-discrepancy for any n (not just powers of two).
-        private static IEnumerable<int> LowDiscrepancyOrder(int n)
-        {
-            int bits = 1, N = 2;
-            while (N < n) { N <<= 1; bits++; }
-            for (int i = 0; i < N; i++)
-            {
-                int r = ReverseBits(i, bits);
-                if (r < n) yield return r;
-            }
-        }
-
-        private static int ReverseBits(int v, int bits)
-        {
-            int r = 0;
-            for (int b = 0; b < bits; b++) { r = (r << 1) | (v & 1); v >>= 1; }
-            return r;
-        }
-
-        // Spread every batch in place (batches with <= 2 items are left untouched).
-        public static void SpreadWithinBatches(List<List<int>> batches, Func<int, double> keyOf)
-        {
-            if (batches == null) return;
-            for (int b = 0; b < batches.Count; b++)
-                if (batches[b] != null && batches[b].Count > 2)
-                    batches[b] = SpreadBySortedKey(batches[b], keyOf);
-        }
-    }
-
     // AREA-BALANCED: split into K = ceil(N/batchSize) batches with nearly EQUAL TOTAL AREA, so every batch
     // needs a similar number of sheets and the leftover consolidation stays even. Uses the LPT (Longest
     // Processing Time) heuristic: sort parts largest-area first, then drop each into the batch with the
@@ -105,7 +51,6 @@ namespace nest_lib.batch
         public string Key => "area_normal";                 // kept for saved-file compatibility (dropdown is index-based)
         public string Label => "Area Balanced";
         public string Description => "Balance total part area across batches (largest-first greedy / LPT), each batch <= batch size.";
-        public bool SpreadWithinBatch => true;              // area-sorted within a batch -> spread for a better feed order
 
         public List<List<int>> Distribute(IReadOnlyList<PartDescriptor> parts, int batchSize)
         {
@@ -142,7 +87,6 @@ namespace nest_lib.batch
         public string Key => "sequential";
         public string Label => "Sequential";
         public string Description => "Contiguous chunks in input order (parts 1..N split into slices of batch size).";
-        public bool SpreadWithinBatch => false;             // spatial/semantic adjacency is meaningful — keep it
 
         public List<List<int>> Distribute(IReadOnlyList<PartDescriptor> parts, int batchSize)
         {
@@ -171,7 +115,6 @@ namespace nest_lib.batch
         public string Key => "sequential_merge";
         public string Label => "Sequential-Merge";
         public string Description => "Apply the chosen distribution, merge its batches in order, then cut into full batch-size sequential chunks.";
-        public bool SpreadWithinBatch => false;             // produces deliberate sequential order — keep it
 
         public List<List<int>> Distribute(IReadOnlyList<PartDescriptor> parts, int batchSize)
         {
