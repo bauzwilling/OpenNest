@@ -60,6 +60,10 @@ of ~36, each filling ~3 sheets — exactly the case batching is built for.
 - **Distribution method** (dropdown) only changes how parts are grouped, not how many batches
   (`ceil(N / Batch Size)`). *Area Balanced* (default) equalizes total area per batch; it does **not**
   fix a too-small Batch Size.
+- **Only batch membership matters, not the order inside a batch.** The native engine sorts every batch
+  largest-area-first before the genetic algorithm starts, so reordering parts within a batch does not change
+  the layout. (That is why the former *Spread In Batch* option was removed in 2.89.8.0: it reordered each
+  batch, and the engine undid it. Saved files that had it still open; the old value is ignored.)
 
 ## What the engine does automatically when a round stalls
 

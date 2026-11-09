@@ -8,6 +8,13 @@ GitHub Releases. Each entry describes what the release actually changed.
 > the previous tag), so a clear commit subject per push becomes the changelog line — refine an entry
 > here anytime if you want more detail.
 
+## [2.89.8.0] - 2026-11-09
+- sheets: sheet sets can have a **Quantity** and a **Price** (Sheets component); new **Sheet Select** option chooses each new sheet by List Order (unchanged), Min Area or Min Price, with **Sheet Tie (%)** sending near-ties to the larger sheet. Batch nesting tracks sheet stock across all batches (`nfp_nest_v2`; see `docs/sheet_selection.md`)
+- nfp: optional **Compare Types** — also nest the job with each sheet set alone and keep the best whole layout; every run gets the full iterations
+- nfp: ESC / Timeout also stops the turbo (multi-seed) mode and keeps the best layout so far; turbo seeds evaluate each generation in parallel
+- batch: remove the **Spread In Batch** option (and the Spread input of Batch Distribution) — the native engine sorts every batch largest-area-first before nesting, so reordering a batch never changed the result. Saved files still open with every other input in place; the old value is ignored
+- ci: `datab_mac` workflow builds the matching DataB_OpenNest macOS package for a release tag
+
 ## [2.89.7.0] - 2026-10-22
 - geometry: new Simplify "Max deviation" mode (GH1: right-click toggle on Geometry / Geometry (Surfaces); GH2: Simplify `[ε, 1]`; Geometry (Rhino): `[ε, hull, 1]`) — Simplify x>0 becomes the maximum deviation ε and the nesting outline CONTAINS the part (outers never smaller, holes never larger), so simplifying can't cause an overlap; tangent vertices on convex arcs/curves, chords on concave ones, closed-form arc division, freeform refinement, ε-bounded merging that never moves the outline into the material, and Hull (outer loops only) taken from the containing outline
 - docs: document the Max deviation mode on the Geometry pages; mark phases 1–2 of `plans/simplify_max_deviation.md` as done
