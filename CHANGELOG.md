@@ -12,7 +12,7 @@ GitHub Releases. Each entry describes what the release actually changed.
 - sheets: sheet sets can have a **Quantity** and a **Price** (Sheets component); new **Sheet Select** option chooses each new sheet by List Order (unchanged), Min Area or Min Price, with **Sheet Tie (%)** sending near-ties to the larger sheet. Batch nesting tracks sheet stock across all batches (`nfp_nest_v2`; see `docs/sheet_selection.md`)
 - nfp: optional **Compare Types** — also nest the job with each sheet set alone and keep the best whole layout; every run gets the full iterations
 - engine (nfp_nest API only; the plug-ins use the default mode): `nfp_cancel` also stops the turbo (multi-seed) mode and returns the best layout so far; turbo seeds evaluate each generation in parallel
-- batch: remove the **Spread In Batch** option (and the Spread input of Batch Distribution) — the native engine sorts every batch largest-area-first before nesting, so reordering a batch never changed the result. Saved files still open with every other input in place; the old value is ignored
+- batch: remove the **Spread In Batch** option (and the Spread input of Batch Distribution) — the native engine sorts every batch largest-area-first before nesting, so the intended large/small feed order never reached the solver; the only remaining effect was an arbitrary reshuffle of equal-area parts, which can change the layout but gave no consistent improvement. Saved files still open with every other input in place; the old value is ignored
 - ci: `datab_mac` workflow builds the matching DataB_OpenNest macOS package for a release tag
 
 ## [2.89.7.0] - 2026-10-22

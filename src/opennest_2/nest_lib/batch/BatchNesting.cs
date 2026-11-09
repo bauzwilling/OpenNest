@@ -75,8 +75,9 @@ namespace nest_lib.batch
         string Description { get; }
         // Partition `parts` into batches; each batch is a list of instance Ids. No instance is dropped or
         // duplicated; batch sizes are <= batchSize (the last may be smaller). Only membership matters: the
-        // native engine re-sorts each batch largest-area-first before nesting, so the order within a batch
-        // has no effect on the layout.
+        // native engine re-sorts each batch largest-area-first before nesting; the order within a batch only
+        // decides how parts of EQUAL area are ordered (the sort is not stable), which can change the layout
+        // but is not a lever for improving it.
         List<List<int>> Distribute(IReadOnlyList<PartDescriptor> parts, int batchSize);
     }
 
