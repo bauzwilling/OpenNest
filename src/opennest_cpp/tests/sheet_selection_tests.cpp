@@ -304,6 +304,41 @@ void test_ties_prefer_the_larger_sheet() {
     CHECK(r.perType[0] == 0, "used %d small and %d big sheets, want only big", r.perType[0], r.perType[1]);
 }
 
+void test_min_price_prefers_less_material() {
+    std::printf("min price: same money, less material\n");
+    using nest::pickSheetCandidate;
+    // Price near-tie (40.0 vs 40.2 per unit): the fuller sheet wins over the larger one ...
+    CHECK(pickSheetCandidate({{40.0, 300, 0.5}, {40.2, 100, 0.9}}, 0.01, true) == 1,
+          "min price near-tie should pick the fuller sheet");
+    // ... (min area keeps the larger sheet) ...
+    CHECK(pickSheetCandidate({{40.0, 300, 0.5}, {40.2, 100, 0.9}}, 0.01, false) == 0,
+          "without preferFuller a near-tie still picks the larger sheet");
+    // ... and equal fills (within the margin) still go to the larger sheet: fewer sheets.
+    CHECK(pickSheetCandidate({{40.0, 100, 0.9}, {40.2, 300, 0.895}}, 0.01, true) == 1,
+          "equal fills should pick the larger sheet");
+    // A clearly better price still wins, however empty.
+    CHECK(pickSheetCandidate({{30.0, 300, 0.2}, {40.0, 100, 0.9}}, 0.01, true) == 0, "a clearly lower price wins");
+
+    // Whole layouts at the same price: less sheet area wins before fewer sheets (450 for 13.55 m2 on 6 sheets
+    // beats 450 for 13.89 m2 on 5) ...
+    std::optional<double> fit = 1.0, unpl = 0.0;
+    CHECK(nest::placementLess(fit, unpl, fit, unpl, 450.0, 450.0, 6, 5, 0.01, 13.55, 13.89),
+          "same price: less sheet area should win");
+    CHECK(!nest::placementLess(fit, unpl, fit, unpl, 450.0, 450.0, 5, 6, 0.01, 13.89, 13.55),
+          "same price: more sheet area should lose");
+    // ... areas within the margin fall through to fewer sheets, and a lower price still wins outright.
+    CHECK(nest::placementLess(fit, unpl, fit, unpl, 450.0, 450.0, 5, 6, 0.01, 13.60, 13.55),
+          "same price, near-equal area: fewer sheets should win");
+    CHECK(nest::placementLess(fit, unpl, fit, unpl, 400.0, 450.0, 5, 6, 0.01, 14.0, 13.55),
+          "a clearly lower price wins even with more area");
+
+    // The 30-small vs 15-big case under min price: the same price per area and both full, so fills tie and
+    // the larger sheet still wins (no regression to 30 small sheets).
+    Result r = runV2(60, {{500, 500, -1, 50}, {1000, 500, -1, 100}}, 2, params(), 500, 250);
+    CHECK(r.placed == 60, "placed %d of 60", r.placed);
+    CHECK(r.perType[0] == 0, "min price used %d small and %d big sheets, want only big", r.perType[0], r.perType[1]);
+}
+
 // nfp_cancel must stop a running solve promptly in every engine mode and return the best layout so far
 // (hosts rely on it to honor a time limit). Turbo (mode 2) runs independent seeds on threads.
 void test_cancel_returns_best_so_far() {
@@ -367,6 +402,8 @@ void test_compare_sheet_types() {
             if (a.placed != b.placed) { if (a.placed > b.placed) best = k; continue; }
             double tol = 0.01 * std::max(1.0, std::max(cost(a), cost(b)));
             if (std::fabs(cost(a) - cost(b)) > tol) { if (cost(a) < cost(b)) best = k; continue; }
+            double atol = 0.01 * std::max(1.0, std::max(a.totalArea, b.totalArea));
+            if (std::fabs(a.totalArea - b.totalArea) > atol) { if (a.totalArea < b.totalArea) best = k; continue; }
             if (a.nSheets < b.nSheets) best = k;
         }
         CHECK(sameLayout(cmp, runs[best]), "selection %d: compare result is not the best run (%zu)", selection, best);
@@ -409,6 +446,7 @@ int main() {
     test_min_price();
     test_errors();
     test_ties_prefer_the_larger_sheet();
+    test_min_price_prefers_less_material();
     test_determinism_and_faithful();
     test_cancel_returns_best_so_far();
     test_turbo_generation_parallel();

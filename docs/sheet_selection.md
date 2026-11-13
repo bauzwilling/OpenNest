@@ -111,6 +111,10 @@ Then opening a sheet becomes:
   index. Same material (or money) on fewer sheets is better: fewer sheet loads, set-ups and handling. Example:
   parts that fill a 500×500 and a 1000×500 sheet equally well go on 15 big sheets, not 30 small ones. Sizing the
   last sheet down is unaffected: there the small sheet's score is clearly better, not tied.
+- **Min price: a tie goes to the fuller sheet first.** Every sheet is paid in full, so on a price near-tie the
+  candidate with the higher fill (`placedArea / sheetArea`; fills within `sheet_tie_tolerance` are equal) is
+  opened: the same money buys less wasted material. Equal fills then go to the larger sheet as above, so the
+  15-big-or-30-small case still opens 15 big sheets. Min area needs no such step: its score already is the fill.
 - **Skipped candidates:** a candidate that places **0** parts is never chosen. If every candidate places 0,
   opening stops and the remaining parts are unplaced, as today when a sheet takes nothing.
 - **After choosing:** the winner's placements are committed exactly as the current loop does, and its type's
@@ -145,12 +149,16 @@ between them:
 |---|---|
 | `0` | unplaced area → fitness (unchanged) |
 | `1` | unplaced area → **Σ opened sheet area** → fitness |
-| `2` | unplaced area → **Σ opened sheet price** → fitness |
+| `2` | unplaced area → **Σ opened sheet price** → **Σ opened sheet area** → fitness |
 
 Two layouts whose totals differ by no more than `sheet_tie_tolerance` (relative; at least `1e-9` against
-floating-point noise) count as equal on cost, and the one with **fewer opened sheets** wins
-(`SheetPlacement::sheetCount`); only then does fitness decide.
-`SheetPlacement` gains `totalCost` (`std::optional<double>`, set in modes 1 and 2).
+floating-point noise) count as equal on cost. Then the one with **less total sheet area** wins
+(`SheetPlacement::totalSheetArea`; areas within the same margin are equal), then the one with **fewer opened
+sheets** (`SheetPlacement::sheetCount`); only then does fitness decide. The area step matters for min price:
+a price total doesn't see how full the sheets are (a sheet at 7% costs as much as a full one), so without it two
+layouts at the same price, one on 0.3 m² more sheet, were equal and the one with fewer sheets won. For min area the
+cost already is the area, so the step changes nothing.
+`SheetPlacement` gains `totalCost`, `sheetCount` and `totalSheetArea` (`std::optional`, set in modes 1 and 2).
 
 **Faithful mode** (`mode = 0` in `NfpParams`, the C# parity mode) is a reference implementation. It **ignores**
 `sheet_selection` (uses list order) and says so in the header comment.
@@ -173,7 +181,8 @@ than one sheet type, `nfp_nest_v2` runs:
 2. one solve per type **alone** (list order, that type's quantity),
 
 and returns the **best whole layout**: least unplaced part area, then least total sheet area (mode 1) or price
-(mode 2), where totals within `sheet_tie_tolerance` are equal and **fewer sheets** wins; an exact tie keeps the
+(mode 2), where totals within `sheet_tie_tolerance` are equal and **less total sheet area**, then **fewer sheets**
+wins (as in §4.3); an exact tie keeps the
 earlier run (the per-sheet one first). `out_sheet_type` always holds the original type index.
 
 - **Full search per run.** Each of the `types + 1` runs gets the full `generations`, so every run searches as
@@ -268,6 +277,11 @@ These changes live in NestingService, after this fork release:
 3. **Ties prefer fewer sheets** (revised; the first version kept the smaller sheet, which turned "15 big or 30
    small sheets, same area" into 30 small ones). Per sheet, a near-tie (within `sheet_tie_tolerance`, default 1%)
    opens the larger sheet; per layout, a near-tie on total cost goes to fewer sheets.
+5. **Min price never wastes material for free** (2.89.9). A price total charges a sheet in full however empty it
+   is, so on a price near-tie the fuller sheet opens (per sheet), and the layout with less total sheet area wins
+   (per layout, before fewer sheets). A real case went from 450 (four big sheets, the last at 73%, plus a small
+   sheet at 7% for one part) to 400 (four big sheets): the area step gives the search a way to tell
+   equal-price layouts apart. Min area is unchanged (identical layouts).
 4. **Comparing whole layouts is optional** (`compare_sheet_types`, default off). Per-sheet choice usually wins on
    area, but one sheet size alone sometimes needs fewer sheets for the same area or less. Comparing gives every
    run the full generations, so it never searches less than the plain solve but takes about `types + 1` times as
