@@ -450,25 +450,29 @@ NFP_API int nfp_nest_v2(
     for (int t = 0, cur = 0; t < sheet_type_count; cur += sheet_vertex_counts[t] * 2, t++)
         typeArea[t] = ringArea(sheet_xy + cur, sheet_vertex_counts[t]);
 
-    struct Score { double unplaced, cost; int sheets; };
+    struct Score { double unplaced, cost, area; int sheets; };
     auto score = [&](const RunOut& r) {
-        Score s{0, 0, std::max(0, r.nSheets)};
+        Score s{0, 0, 0, std::max(0, r.nSheets)};
         for (size_t k = 0; k < r.sid.size(); k++)
             if (r.sid[k] < 0 && r.pidx[k] >= 0 && r.pidx[k] < part_count) s.unplaced += partArea[r.pidx[k]];
         for (int k = 0; k < r.nSheets; k++) {
             int t = r.stype[k];
             if (t < 0 || t >= sheet_type_count) continue;
             s.cost += sheet_selection == 2 ? sheet_prices[t] : typeArea[t];
+            s.area += typeArea[t];
         }
         return s;
     };
-    // a better than b: less unplaced area; then less cost, where costs within the tie margin are equal and
-    // fewer sheets wins.
+    // a better than b: less unplaced area; then less cost, where costs within the tie margin are equal; then
+    // less sheet area (within the margin; min price pays every sheet in full, so this keeps the same money
+    // from buying more material); then fewer sheets.
     auto better = [&](const Score& a, const Score& b) {
         double ut = 1e-6 * std::max(1.0, std::max(a.unplaced, b.unplaced));
         if (std::fabs(a.unplaced - b.unplaced) > ut) return a.unplaced < b.unplaced;
         double ct = std::max(1e-9, sheet_tie_tolerance) * std::max(1.0, std::max(a.cost, b.cost));
         if (std::fabs(a.cost - b.cost) > ct) return a.cost < b.cost;
+        double at = std::max(1e-9, sheet_tie_tolerance) * std::max(1.0, std::max(a.area, b.area));
+        if (std::fabs(a.area - b.area) > at) return a.area < b.area;
         return a.sheets < b.sheets;
     };
 

@@ -1537,8 +1537,9 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
             // open the one that serves the objective best. Lower score wins:
             //   mode 1 (min area):  -(placed part area / sheet area)    (highest utilization)
             //   mode 2 (min price):  sheet price / placed part area     (cheapest per unit of parts)
-            // Scores within config.sheetTieTolerance of the best are tied, and a tie goes to the LARGER sheet
-            // (pickSheetCandidate). A type that takes no part is skipped.
+            // Scores within config.sheetTieTolerance of the best are tied. With min price a tie goes first to the
+            // FULLER sheet (same money, less waste); then, in both modes, to the LARGER sheet (fewer sheets; see
+            // pickSheetCandidate). A type that takes no part is skipped.
             std::vector<SheetCandidate> cands;
             std::vector<int> candSheet;
             std::vector<SheetFill> candFill;
@@ -1559,12 +1560,12 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
                 if (placedArea <= 0 || area <= 0) continue;
                 double score = config.sheetSelection == 2 ? priceOf(*sheets[si]) / placedArea
                                                           : -(placedArea / area);
-                cands.push_back({score, area});
+                cands.push_back({score, area, placedArea / area});
                 candSheet.push_back(si);
                 candFill.push_back(std::move(f));
                 candParts.push_back(std::move(trialParts));
             }
-            int pick = pickSheetCandidate(cands, config.sheetTieTolerance);
+            int pick = pickSheetCandidate(cands, config.sheetTieTolerance, config.sheetSelection == 2);   // fuller first
             if (pick < 0) break;   // no remaining sheet type takes any part
 
             int bestIdx = candSheet[pick];
@@ -1635,6 +1636,7 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
     result.unplacedArea = config.faithful ? std::nullopt : std::optional<double>(unplacedArea);
     result.totalCost = selecting ? std::optional<double>(totalCost) : std::nullopt;
     result.sheetCount = selecting ? std::optional<int>(openedSheets) : std::nullopt;
+    result.totalSheetArea = selecting ? std::optional<double>(totalsheetarea) : std::nullopt;
 
     return result;
 }

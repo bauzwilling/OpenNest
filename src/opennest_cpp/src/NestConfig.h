@@ -60,8 +60,9 @@ struct NestConfig {
     int sheetSelection = 0;
     std::vector<double> sheetPrices;
     // Near-tie margin for sheet selection, relative (0.01 = 1%): candidates whose score is within this of the
-    // best are treated as tied, and a tie goes to the LARGER sheet (fewer sheets). Whole layouts whose total
-    // area / price differ by no more than this are compared on sheet count instead. 0 = exact ties only.
+    // best are treated as tied; with min price the FULLER one wins first (fills within the margin are equal),
+    // then the LARGER sheet (fewer sheets). Whole layouts whose total area / price differ by no more than this
+    // are compared on total sheet area (within the margin), then sheet count. 0 = exact ties only.
     double sheetTieTolerance = 0.01;
 };
 

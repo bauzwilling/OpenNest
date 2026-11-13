@@ -111,7 +111,7 @@ void GeneticAlgorithm::generation() {
         // Lexicographic: fewer unplaced (by area) first, then tighter packing. In faithful mode both
         // unplacedArea are empty so this degrades to the canonical fitness-only ordering.
         return placementLess(a.fitness, a.unplacedArea, b.fitness, b.unplacedArea, a.totalCost, b.totalCost,
-                             a.sheetCount, b.sheetCount, tieTol);
+                             a.sheetCount, b.sheetCount, tieTol, a.totalSheetArea, b.totalSheetArea);
     });
 
     auto pickIndex = [&](int excludeIdx) -> int {
