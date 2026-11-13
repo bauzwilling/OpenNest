@@ -8,6 +8,9 @@ GitHub Releases. Each entry describes what the release actually changed.
 > the previous tag), so a clear commit subject per push becomes the changelog line — refine an entry
 > here anytime if you want more detail.
 
+## [2.89.9.0] - 2026-11-14
+- sheets: **Min Price** no longer wastes material at the same price. A price total charges every sheet in full, however empty, so it could not tell a wasteful layout from a tight one: on a price near-tie (**Sheet Tie (%)**) the **fuller** sheet now opens (equal fills still go to the larger sheet, so 15 big still beats 30 small), and between whole layouts at the same price the one with **less total sheet area** wins before the one with fewer sheets (also in **Compare Types**). A test job went from 450 (four big sheets, the last at 73%, plus a small sheet at 7% for one part) to 400 (four big sheets). Min Area and List Order are unchanged
+
 ## [2.89.8.0] - 2026-11-09
 - sheets: sheet sets can have a **Quantity** and a **Price** (Sheets component); new **Sheet Select** option chooses each new sheet by List Order (unchanged), Min Area or Min Price, with **Sheet Tie (%)** sending near-ties to the larger sheet. Batch nesting tracks sheet stock across all batches (`nfp_nest_v2`; see `docs/sheet_selection.md`)
 - nfp: optional **Compare Types** — also nest the job with each sheet set alone and keep the best whole layout; every run gets the full iterations
