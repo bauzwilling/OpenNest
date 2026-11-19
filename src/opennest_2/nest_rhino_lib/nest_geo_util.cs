@@ -22,7 +22,8 @@ namespace nest_rhino_lib
 
             // Defensive defaults: callers should pass >=2 simplify params, but don't crash if not.
             double sp0 = (simplify_parameters != null && simplify_parameters.Count > 0) ? simplify_parameters[0] : -100;
-            bool   sp1 = (simplify_parameters != null && simplify_parameters.Count > 1) && simplify_parameters[1] > 0;
+            int    hullMode = hull_mode(simplify_parameters);
+            bool   sp1 = hullMode == HULL_ON;
             // Max-deviation mode: group on the plain outlines, then rebuild containing polygons (contain_simplify).
             bool   maxDev = is_max_deviation(simplify_parameters, sp0);
             double groupSp0 = maxDev ? 0 : sp0;
@@ -93,6 +94,8 @@ namespace nest_rhino_lib
                 nestGeo.identify_groups(groupSp0, groupHull);
             if (maxDev)
                 nestGeo.contain_simplify(sp0, sp1);
+            if (hullMode == HULL_AUTO)
+                nestGeo.auto_hull(hull_auto_min_pocket(simplify_parameters), maxDev);
 
             // A part's attribute geometry is stored on EVERY one of its boundary-curve indices (outer +
             // holes), and every consumer iterates ALL indices in a placed group -> without this, a part with
@@ -164,18 +167,46 @@ namespace nest_rhino_lib
             // Defensive: callers may pass one value (e.g. Simplify = 0) or none. Don't index [1] blindly —
             // that threw "Index out of range" when only a single Simplify value was wired.
             double sp0 = (simplify_parameters != null && simplify_parameters.Count > 0) ? simplify_parameters[0] : 100;
-            bool   sp1 = (simplify_parameters != null && simplify_parameters.Count > 1) && simplify_parameters[1] > 0;
+            int    hullMode = hull_mode(simplify_parameters);
+            bool   sp1 = hullMode == HULL_ON;
             bool   maxDev = is_max_deviation(simplify_parameters, sp0);
             nestGeo.identify_groups(maxDev ? 0 : sp0, !maxDev && sp1);
             if (maxDev)
                 nestGeo.contain_simplify(sp0, sp1);
+            if (hullMode == HULL_AUTO)
+                nestGeo.auto_hull(hull_auto_min_pocket(simplify_parameters), maxDev);
             return nestGeo;
         }
 
-        // simplify_parameters = [value, hull 0/1, mode]. mode 1 = "Max deviation": value > 0 is the maximum deviation
-        // eps and the nesting outline CONTAINS the original (nest_geo.contain_simplify). Absent / 0 = distance mode.
+        // simplify_parameters = [value, hull, mode, auto pocket %]. mode 1 = "Max deviation": value > 0 is the maximum
+        // deviation eps and the nesting outline CONTAINS the original (nest_geo.contain_simplify). Absent / 0 =
+        // distance mode. hull: 0 = Off, 1 = On (every part), 2 = Auto (nest_geo.auto_hull: every part without a
+        // concave pocket of at least `auto pocket %` of its area; absent = 5%).
         public const int SIMPLIFY_MODE_DISTANCE = 0;
         public const int SIMPLIFY_MODE_MAX_DEVIATION = 1;
+        public const int HULL_OFF = 0;
+        public const int HULL_ON = 1;
+        public const int HULL_AUTO = 2;
+        public const double HULL_AUTO_DEFAULT_POCKET_PERCENT = 5.0;
+
+        // Hull mode from simplify_parameters[1]: 2 (or more) = Auto, any other value > 0 = On (a Boolean true is 1), else Off.
+        public static int hull_mode(List<double> simplify_parameters)
+        {
+            if (simplify_parameters == null || simplify_parameters.Count < 2) return HULL_OFF;
+            double v = simplify_parameters[1];
+            if (double.IsNaN(v) || v <= 0) return HULL_OFF;
+            return Math.Round(v) >= HULL_AUTO ? HULL_AUTO : HULL_ON;
+        }
+
+        // Hull: Auto's minimum pocket as a FRACTION, from simplify_parameters[3] in percent (absent / invalid = 5%),
+        // clamped to 0..100%.
+        public static double hull_auto_min_pocket(List<double> simplify_parameters)
+        {
+            double pct = HULL_AUTO_DEFAULT_POCKET_PERCENT;
+            if (simplify_parameters != null && simplify_parameters.Count > 3 && !double.IsNaN(simplify_parameters[3]) && !double.IsInfinity(simplify_parameters[3]))
+                pct = simplify_parameters[3];
+            return Math.Max(0.0, Math.Min(100.0, pct)) / 100.0;
+        }
         private static bool is_max_deviation(List<double> simplify_parameters, double value)
             => value > 0 && simplify_parameters != null && simplify_parameters.Count > 2
                && (int)Math.Round(simplify_parameters[2]) == SIMPLIFY_MODE_MAX_DEVIATION;

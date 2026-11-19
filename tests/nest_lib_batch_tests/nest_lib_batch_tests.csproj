@@ -18,6 +18,7 @@
     <Compile Include="..\..\src\opennest_2\nest_lib\batch\BatchNesting.cs" />
     <Compile Include="..\..\src\opennest_2\nest_lib\batch\Distributors.cs" />
     <Compile Include="..\..\src\opennest_2\nest_lib\preorient\FitOrientation.cs" />
+    <Compile Include="..\..\src\opennest_2\nest_lib\preorient\ConcavePockets.cs" />
   </ItemGroup>
 
 </Project>
