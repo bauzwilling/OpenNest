@@ -334,9 +334,11 @@ NestingContext NestingContext::RunParallelSeeds(
         }
         contexts[s]->ReorderSheets();
 
-        // Per-seed config with unique seed
+        // Per-seed config: seed s searches with the caller's seed + s, so seed s gives exactly what a single
+        // (mode 1) search with that seed gives and a different caller seed gives different searches. A time-based
+        // caller seed (< 0) keeps the former fixed seeds s*1000+42.
         contexts[s]->config = baseConfig;
-        contexts[s]->config.seed = s * 1000 + 42;
+        contexts[s]->config.seed = baseConfig.seed >= 0 ? baseConfig.seed + s : s * 1000 + 42;
 
         contexts[s]->StartNest();
     }
