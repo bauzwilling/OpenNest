@@ -36,7 +36,7 @@ typedef struct NfpParams {
     int    simplify;        // bool: convex-hull simplify
     int    mode;            // 0=faithful (parity, single-thread), 1=default, 2=turbo (multi-seed)
     int    generations;     // GA generations (== component "Iterations")
-    int    numSeeds;        // turbo: parallel independent seeds
+    int    numSeeds;        // turbo: parallel independent seeds seed, seed+1, ... (seed < 0: fixed s*1000+42); best kept
     int    useParallel;     // bool: parallel NFP / population evaluation (modes 1 and 2: each step evaluates a
                             // whole generation's candidates in parallel; in turbo, every seed does)
     double timeBudgetSecs;  // >0 => run until elapsed (overrides generations loop length)
