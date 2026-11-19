@@ -22,7 +22,7 @@ Prepares parts for nesting: separates outlines (with holes) from attached attrib
 | --- | --- | --- | --- |
 | **Outlines** | Geometry | tree | Closed curves OR planar surfaces (cast per type internally).<br>If geometries have holes, create a data-tree first. <br>Place each element into indivdual branch. <br>Otherwise the algoritm will try to order polylines by checking possible holes. |
 | **Simplify** | Number | item | segment divisions <br>0 = KEEP ALL vertices (no simplification - best for nesting fine outlines) <br>x>0 divides curved segments every x units: one point per x of curve length, with no upper cap (smaller x = more vertices, tighter fit, slower nesting); near-straight joins are merged only while the merged edge stays within 10x the model tolerance <br>x<0 max 3 points per sub-segment (merges colinear within 10deg)<br>Right-click > **Simplify: Max deviation**: x>0 becomes the maximum deviation and the nesting outline contains the part (see [Max deviation mode](#max-deviation-mode)) _Default: -100._ |
-| **Hull** | Boolean | item | Replace each outline with its convex hull.<br>Right-click > **Hull: Auto**: only parts *without* a concave pocket of at least **Auto min pocket (%)** of their area (set in the same menu, default 5) are hulled; the others keep their outline so parts can nest into the pocket (see [Hull: Auto](#hull-auto)). _Default: false._ |
+| **Hull** | Boolean | item | Replace each outline with its convex hull.<br>Right-click > **Hull: Auto**: only parts *without* a concave pocket of at least **Auto min pocket (%)** of their area (set in the same menu, default 5) are hulled; the others keep their outline so parts can nest into the pocket (see [Hull: Auto](#hull-auto)). _Default: true, with Hull: Auto on (new components since 2.89.11)._ |
 | **Copies** | Integer | list | Number of copies per part |
 | **Offset** | Number | item | Clearance offset for NESTING only (model units; 0 = OFF, fast).<br>Parts: outer grows / holes shrink so placed parts keep this gap.<br>The ORIGINAL curves are still what get placed/output.<br>Keeps every vertex of the nesting outline (only exactly colinear points are merged). _Default: 0._ |
 | **Rotations** | Integer | list | OPTIONAL per-part rotation constraint (one value per part, repeats like Copies).<br>Empty / 0 = part inherits the solver's global Rotations setting (default).<br>N > 0 = THIS part may only use N orientations (360/N degree steps).<br>1 = fixed, no rotation (e.g. grain direction).<br>Lets rectangular parts stay at 4 orientations while freeform parts rotate freely in ONE nest.<br>Works with both OpenNest2 and OpenNestCollision. |
@@ -104,8 +104,13 @@ The pockets are measured on the outer loop after Simplify (in Max deviation mode
 Holes do not count; a hulled part's holes are treated as with Hull alone. The component message shows
 `Hull auto 5%` and a remark says how many parts were hulled and how many kept their outline. The threshold is a
 share of each part's own area, so on a large part a pocket under 5% can still hold a small part: lower it for
-jobs with small parts. Hull = False ignores the setting. Both settings are saved with the component; files saved
-before 2.89.11.0 open with Auto off.
+jobs with small parts. Hull = False ignores the setting.
+
+**Default.** A new Geometry or Geometry (Surfaces) component starts with **Hull = True** and **Hull: Auto** on, and a
+new Geometry (Rhino) with Simplify `[0, 2]`. Both settings are saved with the component, so files saved before
+2.89.11.0 keep what they had (Auto off, and their own Hull value). Parts that keep their concave outline nest on
+their full outline rather than a few hull vertices, so a job of many concave, curved parts nests slower than with
+Auto off; uncheck it when speed matters more than using the pockets.
 
 !!! note
     Grasshopper 2 Geometry and Geometry (Surfaces) have no Hull: Auto yet: their Hull input is on/off only.

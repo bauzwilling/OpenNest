@@ -12,13 +12,15 @@ namespace opennest_2
     //   Hull True              -> every part by its convex hull (1)
     //   Hull True + Hull: Auto -> every part EXCEPT those with a concave pocket of at least "Auto min pocket (%)" of
     //                             their area, which keep their outline so other parts can nest into the pocket (2).
-    // Both settings are saved with the component; files without them load as Auto off, 5%.
+    // Both settings are saved with the component. A NEW component starts with Auto on (2.89.11: Hull Auto is the
+    // default, with the Hull input defaulting to True); files saved before that load as Auto off, 5%, so they
+    // nest as they did.
     internal sealed class hull_auto_menu
     {
         internal const string KEY = "hull_auto";
         internal const string KEY_POCKET = "hull_auto_pocket_percent";
 
-        public bool Auto = false;
+        public bool Auto = true;   // new components; Read() turns it off for files without the key
         public double PocketPercent = nest_rhino_lib.nest_geo_util.HULL_AUTO_DEFAULT_POCKET_PERCENT;
 
         // simplify_parameters[1] for the Hull input value (nest_geo_util.hull_mode).

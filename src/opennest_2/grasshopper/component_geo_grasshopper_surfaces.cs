@@ -55,7 +55,7 @@ namespace opennest_2
 
             pManager.AddBrepParameter( "Surfaces", "Surfaces", "Planar boundary surfaces.\n If you want to nest multiple sheets partition surfaces into the data-tree.", GH_ParamAccess.list);
             pManager.AddNumberParameter("Simplify", "Simplify", "segment divisions \n0 takes only ends \nx>0 divides curved segments every x units (no cap on the point count) \nx<0 max 3 points per sub-segment)\nRight-click > 'Simplify: Max deviation': x>0 becomes the maximum deviation from the original, and the nesting outline then CONTAINS the part (no overlap from simplifying)", GH_ParamAccess.item,  -100);
-            pManager.AddBooleanParameter("Hull", "Hull", "Use the convex hull of each simplified outline.\nRight-click > 'Hull: Auto': only parts WITHOUT a concave pocket of at least 'Auto min pocket (%)' of their area are hulled; the others keep their outline so parts can nest into the pocket.", GH_ParamAccess.item, false );
+            pManager.AddBooleanParameter("Hull", "Hull", "Use the convex hull of each simplified outline.\nRight-click > 'Hull: Auto': only parts WITHOUT a concave pocket of at least 'Auto min pocket (%)' of their area are hulled; the others keep their outline so parts can nest into the pocket.", GH_ParamAccess.item, true );
             pManager.AddIntegerParameter("Copies", "Copies", "Number of copies per part.", GH_ParamAccess.list);
             pManager.AddNumberParameter("Offset", "Offset", "Clearance offset for NESTING only (model units; 0 = OFF, fast).\nParts: outer grows / holes shrink so placed parts keep this gap.\nThe ORIGINAL curves are still what get placed/output.", GH_ParamAccess.item, 0);
             pManager.AddIntegerParameter("Rotations", "Rotations",
