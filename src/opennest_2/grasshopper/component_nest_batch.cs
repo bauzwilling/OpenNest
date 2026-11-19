@@ -42,9 +42,13 @@ namespace opennest_2
         private string _pendingSig = null;
         private volatile bool _restartRequested = false;   // inputs changed mid-solve -> re-nest after publish
 
-        // Optional wall-clock timeout for the WHOLE batch run (seconds; 0 = off). Trips the same stop path as ESC.
+        // Optional time limit for the WHOLE batch run (seconds; 0 = off). The orchestrator splits it across the
+        // solves (BatchNestOrchestrator.TimeLimitSeconds), so the run ends near the limit with every computed
+        // sheet kept. The watchdog is only a safety net: it trips the ESC stop path after the limit plus a grace
+        // period (HardStopSeconds), in case a solve does not stop at its share.
         private readonly TimeoutWatch _timeout = new TimeoutWatch();
         private double _timeoutSecs = 0;
+        private static double HardStopSeconds(double limit) => limit <= 0 ? 0 : limit + Math.Max(10.0, 0.1 * limit);
 
         // pending solve inputs / result
         private nest_lib.OpenNestBatchEngine _engine;
@@ -343,6 +347,7 @@ namespace opennest_2
             {
                 IsCancelled = () => _cancelled,
                 OnProgress = msg => _progress = msg,
+                TimeLimitSeconds = _timeoutSecs,
             };
             var descriptors = _engine.BuildDescriptors();
             _plan = orch.Run(descriptors);
@@ -414,7 +419,7 @@ namespace opennest_2
                 _cancelled = false; _progress = "";
                 _timeoutSecs = OptNum("timeout", 0);
                 _phase = Phase.Computing;
-                _timeout.Start(_timeoutSecs, TimeoutCancel);
+                _timeout.Start(HardStopSeconds(_timeoutSecs), TimeoutCancel);
                 RunOrchestrationCore(batchSize, maxRounds, distributor);
                 _phase = Phase.Ready;
                 AssembleOutputs(DA);
@@ -516,11 +521,17 @@ namespace opennest_2
 
             // status + errors
             int unplaced = plan != null ? plan.Unplaced.Count : 0;
-            this.Message = (_cancelled ? "stopped — " : "") + $"{totalSheets} sheet(s)" + (unplaced > 0 ? $", {unplaced} unnested" : "");
+            bool timeUp = plan != null && plan.TimeLimitReached;
+            this.Message = (_cancelled ? "stopped — " : timeUp ? "time limit — " : "") + $"{totalSheets} sheet(s)" + (unplaced > 0 ? $", {unplaced} unnested" : "");
             if (unplaced > 0)
                 AddRuntimeMessage(GH_RuntimeMessageLevel.Warning,
                     $"{unplaced} part(s) were not nested (output at their input location, Sheet Id = -1)"
-                    + (_cancelled ? " — stopped early; raise Timeout or Iterations, or press Run again." : " — they don't fit any sheet."));
+                    + (timeUp ? " — the Timeout ran out before they got a sheet; raise Timeout, or lower Iterations."
+                       : _cancelled ? " — stopped early; raise Timeout or Iterations, or press Run again."
+                       : " — they don't fit any sheet."));
+            if (plan != null && plan.SolvesStoppedByTimeBudget > 0)
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Remark,
+                    $"{plan.SolvesStoppedByTimeBudget} batch solve(s) reached their share of the Timeout before finishing their Iterations; they kept their best layout so far.");
 
             _o_sheets = output_sheets; _o_borders = borders; _o_allgeo = allGeo; _o_xforms = xforms;
             _o_sheetid = sheetId; _o_sheettxt = sheetTxt; _o_attr = attrs; _hasResult = true;
@@ -562,10 +573,11 @@ namespace opennest_2
             if (_phase == Phase.Computing) _timer.Start();
         }
 
-        private void StartClock() { RhinoApp.EscapeKeyPressed += OnEscape; _timer.Start(); _timeout.Start(_timeoutSecs, TimeoutCancel); }
+        private void StartClock() { RhinoApp.EscapeKeyPressed += OnEscape; _timer.Start(); _timeout.Start(HardStopSeconds(_timeoutSecs), TimeoutCancel); }
         private void StopClock() { try { RhinoApp.EscapeKeyPressed -= OnEscape; } catch { } try { _timer.Stop(); } catch { } _timeout.Stop(); }
 
-        // Wall-clock timeout fired: stop the whole batch run, keep the sheets committed so far (same as ESC).
+        // Safety-net watchdog fired (limit + grace passed): stop the whole batch run, keep the sheets computed so
+        // far (same as ESC).
         private void TimeoutCancel()
         {
             if (_phase == Phase.Computing) { _runActive = false; _cancelled = true; _engine?.Cancel(); this.Message = "timeout — keeping result so far"; }

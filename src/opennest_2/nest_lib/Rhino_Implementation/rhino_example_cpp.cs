@@ -13,8 +13,24 @@ namespace nest_lib
     // (x, y, rotation, sheet) so get_results / the GH output assembly are reused verbatim.
     public partial class rhino_example
     {
+        // Send nfp_cancel once: on a stop request (ESC / timeout), or when the solve's time budget runs out. The
+        // solver then returns its best layout so far.
+        private void PollStop(ref bool cancelSent)
+        {
+            if (cancelSent) return;
+            if (StopRequested) { NfpNestWrapper.nfp_cancel(); cancelSent = true; }
+            else if (TimeBudgetSeconds > 0 && _solveWatch != null && _solveWatch.Elapsed.TotalSeconds >= TimeBudgetSeconds)
+            {
+                NfpNestWrapper.nfp_cancel(); cancelSent = true; StoppedByTimeBudget = true;
+            }
+        }
+
         private void run_cpp()
         {
+            // The time budget covers the whole solve, preparation included.
+            _solveWatch = System.Diagnostics.Stopwatch.StartNew();
+            StoppedByTimeBudget = false;
+
             // Build partsLocal (offset display geometry) + assign ids exactly like the managed path.
             context.init();
 
@@ -165,7 +181,7 @@ namespace nest_lib
             bool cancelSent = false;
             while (!solveTask.IsCompleted)
             {
-                if (StopRequested && !cancelSent) { NfpNestWrapper.nfp_cancel(); cancelSent = true; }
+                PollStop(ref cancelSent);
                 try
                 {
                     CurrentGeneration = (int)NfpNestWrapper.nfp_progress();
@@ -282,7 +298,7 @@ namespace nest_lib
             bool cancelSent = false;
             while (!solveTask.IsCompleted)
             {
-                if (StopRequested && !cancelSent) { NfpNestWrapper.nfp_cancel(); cancelSent = true; }
+                PollStop(ref cancelSent);
                 try
                 {
                     CurrentGeneration = (int)NfpNestWrapper.nfp_progress();

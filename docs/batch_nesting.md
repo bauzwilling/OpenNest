@@ -56,7 +56,9 @@ of ~36, each filling ~3 sheets — exactly the case batching is built for.
   limited set is never used more often than its quantity. Each output sheet is drawn with its own set's outline.
   See [sheet selection](sheet_selection.md).
 - **Unplaced parts** (parts too big for any sheet, or that the engine can't place after the final
-  consolidation/escalation) are reported as unplaced rather than dropped.
+  consolidation/escalation, or that the **Timeout** ran out before) are reported as unplaced rather than
+  dropped.
+- **Timeout** is the time for the whole run, split across the solves (see [Timeout](#timeout) below).
 - **Distribution method** (dropdown) only changes how parts are grouped, not how many batches
   (`ceil(N / Batch Size)`). *Area Balanced* (default) equalizes total area per batch; it does **not**
   fix a too-small Batch Size.
@@ -78,3 +80,32 @@ If a re-batching round commits nothing (every batch fit on one sheet), the orche
 
 This recovers gracefully, but it's a safety net — it is **not** a substitute for setting `Batch Size`
 correctly relative to parts-per-sheet.
+
+## Timeout
+
+**Timeout (s)** (0 = no limit) is the time for the **whole** batch run. Each solve gets a share of the time
+left, and when its share runs out it stops and keeps its best layout so far, the same as pressing ESC for that
+one solve:
+
+- **A batch** gets a share in proportion to its estimated cost, the **vertex count** of its parts' nesting
+  outlines (outer + holes), with one average batch held back for later rounds and the final pass:
+  `left × cost(b) / (Σ cost of the batches left in the round + their mean)`. With equal costs that is
+  `left / (batches left + 1)`.
+- **The final pass** gets all the time left (split by cost when it runs in more than one chunk).
+- Every share is at least 1 s.
+
+The split is by vertices, not by part count, because solve time follows the outlines' size: on a 779-part job
+whose batches had near-equal part counts and areas, solve times ran from 12 s (≈300 vertices) to 48 s
+(≈850), within about 12% of proportional to the vertex count (the part count missed by about 43%). An
+equal split gave the heavy batches too little time and left time unused at the end.
+
+**When the time is up**, no further solve runs. The not-full last sheets of the round are **kept as they are**
+(nothing would re-nest them now), so no computed sheet is thrown away; parts that never got a sheet (batches
+that did not run yet) are reported unplaced. The component then shows `time limit — N sheet(s)`, and a remark
+counts the solves that stopped at their share before finishing their **Iterations**. Pressing **ESC** keeps the
+last sheets the same way.
+
+Before 2.89.10.0 the Timeout was a single timer for the whole run: when it fired, the running batch stopped,
+every later batch was skipped and the re-pooled last sheets of the round were dropped, so all those parts came
+back unplaced. A watchdog still stops the run as a safety net if it runs past the Timeout by 10% (at least
+10 s).
