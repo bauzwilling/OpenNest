@@ -8,6 +8,11 @@ GitHub Releases. Each entry describes what the release actually changed.
 > the previous tag), so a clear commit subject per push becomes the changelog line — refine an entry
 > here anytime if you want more detail.
 
+## [2.89.11.0] - 2026-11-19
+- geometry: new **Hull: Auto** (Geometry / Geometry (Surfaces): right-click, with **Auto min pocket (%)** in the same menu; Geometry (Rhino): Simplify `[divisions, 2, mode, pocket %]`). It hulls every part EXCEPT those with a concave pocket (the area between a hull edge and the outline) of at least that share of their area (default 5%): those keep their outline so other parts can nest into the pocket. The largest pocket counts, not their sum, so parts with only small notches are still hulled. The component message shows `Hull auto 5%` and a remark counts the parts hulled and kept
+- geometry: **Hull Auto is the default for new components**: Hull defaults to True with Hull: Auto on, and Geometry (Rhino) to Simplify `[0, 2]`. Saved files keep their settings (Auto off), so existing definitions nest as before. Concave parts that keep their outline nest slower than their hulls; uncheck Hull: Auto when speed matters more
+- GH2 Geometry / Geometry (Surfaces) keep an on/off Hull (no Auto yet); GH2 Geometry (Rhino) has it through its Simplify list
+
 ## [2.89.10.0] - 2026-11-19
 - batch: **Timeout** is now the time for the whole run, shared across the solves. Each batch gets a share of the time left in proportion to its outlines' **vertex count** (one average batch held back for later rounds and the final pass); the final pass gets all that is left; a solve that reaches its share stops and keeps its best layout so far. Before, the Timeout was one timer: when it fired, the running batch stopped, later batches were skipped and the round's last sheets were dropped, so all those parts came back unplaced
 - batch: when the time is up, or the run is stopped with ESC, the round's not-full last sheets are **kept** as they are instead of their parts coming back unplaced; only parts that never got a sheet are unplaced. The component says `time limit — N sheet(s)` and notes how many solves stopped at their share. A watchdog still stops the run if it overruns the Timeout by 10% (at least 10 s)
