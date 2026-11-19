@@ -72,6 +72,11 @@ namespace nest_lib
         // generation; the UI thread reads the swapped reference for the orange "tightening" preview.
         // Polyline/Transform are pure geometry (no RhinoDoc access) so they are safe to build off the UI thread.
         public volatile bool StopRequested = false;
+        // Time budget for this solve in seconds (0 = none; batch nesting sets each batch's share of the time
+        // limit). When it runs out the solver is cancelled like ESC and returns its best layout so far.
+        public double TimeBudgetSeconds = 0;
+        public bool StoppedByTimeBudget { get; private set; }
+        private System.Diagnostics.Stopwatch _solveWatch;
         public volatile int CurrentGeneration = 0;
         public int TotalGenerations => max_iterations;
         public double CurrentFitness = 0.0;   // display only (double can't be volatile in C#; a torn read just mislabels one frame)

@@ -21,8 +21,14 @@ namespace nest_lib
     // mode or limited quantities every solve runs nfp_nest_v2; the engine reserves the sheets each solve opens
     // and gets re-pooled last sheets back (ISheetStockEngine), so a limited type is never used more often than
     // its quantity across all batches. Each output sheet is drawn with its own type's outline.
-    public sealed class OpenNestBatchEngine : IBatchNestEngine, ISheetStockEngine
+    //
+    // Time limit (ITimeBudgetEngine): the orchestrator sets each solve's share of the time left; the solve is
+    // cancelled when it runs out (rhino_example.TimeBudgetSeconds) and its best layout so far is used.
+    public sealed class OpenNestBatchEngine : IBatchNestEngine, ISheetStockEngine, ITimeBudgetEngine
     {
+        private double _timeBudget;   // seconds for the next solve; 0 = none
+        public void SetTimeBudget(double seconds) => _timeBudget = seconds > 0 && !double.IsInfinity(seconds) ? seconds : 0;
+
         // Per solve: the instance transforms, plus each local sheet's slot (laid-out sheet index the transform
         // is baked against) and type. Local sheets are numbered in OPENING order, so the last one is the tail.
         private sealed class SolveData
@@ -117,12 +123,14 @@ namespace nest_lib
         // outer-loop bounding-box size, so shape-aware distributors can derive aspect ratio / compactness).
         // The size is the PRE-ORIENTED box (part_preorient), not the as-drawn one, so a distributor sees the
         // same dimensions the solver will actually nest — identical for every part that fits as drawn.
+        // Vertices (the nesting polylines' vertex count, outer + holes) is what a time limit is split by.
         public List<PartDescriptor> BuildDescriptors()
         {
             var areas = _master.GroupAreas();
             int rotationSteps = (_parameters != null && _parameters.Count > 0) ? (int)_parameters[0] : 0;
             var bounds = nest_rhino_lib.part_preorient.GroupExtents(
                 _master, _sheetsTemplate, rotationSteps, _preOrient != 0);
+            var vertices = GroupVertexCounts();
             var list = new List<PartDescriptor>(_instanceMaster.Count);
             foreach (var kv in _instanceMaster.OrderBy(k => k.Key))
             {
@@ -130,9 +138,30 @@ namespace nest_lib
                 double area = g < areas.Count ? areas[g] : 0.0;
                 double w = g < bounds.Count ? bounds[g].Item1 : 0.0;
                 double h = g < bounds.Count ? bounds[g].Item2 : 0.0;
-                list.Add(new PartDescriptor(kv.Key, area, w, h));
+                int v = g < vertices.Count ? vertices[g] : 0;
+                list.Add(new PartDescriptor(kv.Key, area, w, h, v));
             }
             return list;
+        }
+
+        // Vertex count of each group's nesting polylines (boundary_sorted Item2: outer + holes), the closing
+        // duplicate point not counted.
+        private List<int> GroupVertexCounts()
+        {
+            var counts = new List<int>(_master.boundary_sorted.Count);
+            foreach (var grp in _master.boundary_sorted)
+            {
+                int n = 0;
+                if (grp != null)
+                    foreach (var ring in grp)
+                    {
+                        var pl = ring?.Item2;
+                        if (pl == null) continue;
+                        n += pl.IsClosed ? Math.Max(0, pl.Count - 1) : pl.Count;
+                    }
+                counts.Add(n);
+            }
+            return counts;
         }
 
         public void Cancel()
@@ -182,6 +211,7 @@ namespace nest_lib
                 SheetSelection = _sheetSelection,
                 SheetTieTolerance = _sheetTieTolerance,
                 CompareSheetTypes = _compareSheetTypes,
+                TimeBudgetSeconds = _timeBudget,
             };
             _current = nest;
             if (StopRequested) { nest.StopRequested = true; }
@@ -218,7 +248,11 @@ namespace nest_lib
                     if (t >= 0 && t < _stock.Length && _stock[t] > 0) _stock[t]--;
 
             var data = new SolveData { Xforms = xforms, Slots = slots, Types = types };
-            return new BatchSolveResult { SheetCount = slots.Count, SheetOf = sheetOf, EngineData = data };
+            return new BatchSolveResult
+            {
+                SheetCount = slots.Count, SheetOf = sheetOf, EngineData = data,
+                StoppedByTimeBudget = nest.StoppedByTimeBudget,
+            };
         }
 
         public void ReleaseSheet(BatchSolveResult solve, int localSheet)
