@@ -54,7 +54,7 @@ namespace opennest_2
 
             pManager.AddGeometryParameter( "Outlines", "Outlines", "Closed curves OR planar surfaces (cast per type internally).\nIf geometries have holes, create a data-tree first. \nPlace each element into indivdual branch. \nOtherwise the algoritm will try to order polylines by checking possible holes.", GH_ParamAccess.tree);
             pManager.AddNumberParameter("Simplify", "Simplify", "segment divisions \n0 = KEEP ALL vertices (no simplification - best for nesting fine outlines) \nx>0 divides curved segments every x units (no cap on the point count) \nx<0 max 3 points per sub-segment (merges colinear within 10deg)\nRight-click > 'Simplify: Max deviation': x>0 becomes the maximum deviation from the original, and the nesting outline then CONTAINS the part (no overlap from simplifying)", GH_ParamAccess.item,  -100);
-            pManager.AddBooleanParameter("Hull", "Hull", "Replace each outline with its convex hull", GH_ParamAccess.item, false );
+            pManager.AddBooleanParameter("Hull", "Hull", "Replace each outline with its convex hull.\nRight-click > 'Hull: Auto': only parts WITHOUT a concave pocket of at least 'Auto min pocket (%)' of their area are hulled; the others keep their outline so parts can nest into the pocket.", GH_ParamAccess.item, false );
             pManager.AddIntegerParameter("Copies", "Copies", "Number of copies per part", GH_ParamAccess.list);
             pManager.AddNumberParameter("Offset", "Offset", "Clearance offset for NESTING only (model units; 0 = OFF, fast).\nParts: outer grows / holes shrink so placed parts keep this gap.\nThe ORIGINAL curves are still what get placed/output.", GH_ParamAccess.item, 0);
             pManager.AddIntegerParameter("Rotations", "Rotations",
@@ -157,12 +157,13 @@ namespace opennest_2
             DA.GetData(4, ref offset_distance);
 
             var simplify_parameters = new List<double>{simplify_parameter};
-            if (compute_convex_hull)
-                simplify_parameters.Add(1);
-            else
-                simplify_parameters.Add(0);
+            simplify_parameters.Add(hull_auto.HullValue(compute_convex_hull));   // 0 off / 1 on / 2 auto (right-click)
             simplify_parameters.Add(simplify_max_deviation ? 1 : 0);   // mode: right-click toggle
-            Message = simplify_max_deviation ? simplify_mode_menu.MESSAGE : null;
+            simplify_parameters.Add(hull_auto.PocketPercent);          // Hull: Auto min pocket (%)
+            var hullMessage = hull_auto.Message(compute_convex_hull);
+            Message = simplify_max_deviation
+                ? (hullMessage == null ? simplify_mode_menu.MESSAGE : simplify_mode_menu.MESSAGE + " · " + hullMessage)
+                : hullMessage;
 
             var copies = new List<int>();
             DA.GetDataList(3, copies);
@@ -291,6 +292,7 @@ namespace opennest_2
             //Solution. Flat list => hard_coded_input:false => identify_groups auto-pairs outer rings with
             //the smaller rings they contain (big rect + smaller rect inside = one part with a hole).
             nest_geo = nest_rhino_lib.nest_geo_util.geo_to_nest_geo(curves, copies, simplify_parameters, attributes_geometries, !flatList, rotations, attr_ports, attrPortCount);
+            hull_auto.Report(this, nest_geo, compute_convex_hull);
             if (offset_distance != 0) nest_geo.offset_nesting_boundary(offset_distance);   // 0 = skip entirely (fast)
 
             //Output
@@ -354,16 +356,20 @@ namespace opennest_2
 
         // ---- Simplify mode (right-click toggle, saved with the component) ----
         private bool simplify_max_deviation = false;
+        // ---- Hull: Auto (right-click toggle + min pocket %, saved with the component) ----
+        private readonly hull_auto_menu hull_auto = new hull_auto_menu();
 
         protected override void AppendAdditionalComponentMenuItems(System.Windows.Forms.ToolStripDropDown menu)
         {
             base.AppendAdditionalComponentMenuItems(menu);
             simplify_mode_menu.Append(this, menu, simplify_max_deviation, v => simplify_max_deviation = v);
+            hull_auto.Append(this, menu);
         }
 
         public override bool Write(GH_IO.Serialization.GH_IWriter writer)
         {
             writer.SetBoolean(simplify_mode_menu.KEY, simplify_max_deviation);
+            hull_auto.Write(writer);
             return base.Write(writer);
         }
 
@@ -371,6 +377,7 @@ namespace opennest_2
         {
             simplify_max_deviation = false;
             reader.TryGetBoolean(simplify_mode_menu.KEY, ref simplify_max_deviation);
+            hull_auto.Read(reader);
             return base.Read(reader);
         }
 

@@ -53,7 +53,7 @@ namespace opennest_2
         {
             pManager.AddTextParameter("Layer", "Layer", "Boundary layer in Rhino you need to create to select objects. ", GH_ParamAccess.item);
             pManager.AddIntegerParameter("Copies", "Copies", "Number of copies must be equal to tree branches, number of guids inputs is treated as a separate branch", GH_ParamAccess.list, new List<int> { 1 });
-            pManager.AddNumberParameter("Simplify", "Simplify", "Optional [divisions, hull, mode].\ndivisions: 0 = keep polyline vertices as-is (no simplification, DEFAULT); x>0 divides curved segments by distance; x<0 max 3 points per sub-segment.\nhull (2nd value, 0/1): replace each part with its convex hull. One value is fine (hull defaults 0).\nmode (3rd value): 1 = Max deviation - x>0 becomes the maximum deviation from the original and the nesting outline CONTAINS the part; 0 / omitted = distance.", GH_ParamAccess.list, new List<double> { 0, 0 });
+            pManager.AddNumberParameter("Simplify", "Simplify", "Optional [divisions, hull, mode, auto pocket %].\ndivisions: 0 = keep polyline vertices as-is (no simplification, DEFAULT); x>0 divides curved segments by distance; x<0 max 3 points per sub-segment.\nhull (2nd value): 0 = off; 1 = replace each part with its convex hull; 2 = Auto: hull every part EXCEPT those with a concave pocket of at least 'auto pocket %' of their area (they keep their outline so parts can nest into the pocket). One value is fine (hull defaults 0).\nmode (3rd value): 1 = Max deviation - x>0 becomes the maximum deviation from the original and the nesting outline CONTAINS the part; 0 / omitted = distance.\nauto pocket % (4th value): the Hull Auto threshold, default 5.", GH_ParamAccess.list, new List<double> { 0, 0 });
             pManager.AddNumberParameter("Sort", "Sort", "Sort polylines.", GH_ParamAccess.item, 1);
             pManager.AddNumberParameter("Offset", "Offset", "Clearance offset for NESTING only (model units; 0 = OFF, fast).\nParts: outer grows / holes shrink so placed parts keep this gap.\nThe ORIGINAL curves are still what get placed/output.", GH_ParamAccess.item, 0);
             pManager.AddIntegerParameter("Rotations", "Rotations",
@@ -161,6 +161,10 @@ namespace opennest_2
 
             //Solution
             nest_geo = nest_rhino_lib.nest_geo_util.guid_to_nest_geo(guids, layer, copies, simplify_parameters, rotations);
+            if (nest_rhino_lib.nest_geo_util.hull_mode(simplify_parameters) == nest_rhino_lib.nest_geo_util.HULL_AUTO)
+                AddRuntimeMessage(GH_RuntimeMessageLevel.Remark,
+                    $"Hull Auto: hulled {nest_geo.hull_auto_hulled} part(s); kept the outline of {nest_geo.hull_auto_kept} part(s) with a concave pocket of at least "
+                    + (nest_rhino_lib.nest_geo_util.hull_auto_min_pocket(simplify_parameters) * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "% of their area.");
             if (offset_distance != 0) nest_geo.offset_nesting_boundary(offset_distance);   // 0 = skip entirely (fast)
 
             //if (extend != 0)

@@ -907,6 +907,58 @@ namespace nest_rhino_lib
                 }
         }
 
+        // ---- "Hull: Auto" (Geometry components, Hull = 2) ---------------------------------------------------------
+        // Parts hulled / kept by the last auto_hull (diagnostics for the component message).
+        public int hull_auto_hulled = 0;
+        public int hull_auto_kept = 0;
+
+        // Hull each part as Hull = On would, UNLESS its outer nesting loop has a concave pocket (the region between a
+        // hull edge and the outline) of at least `min_pocket` (a fraction, 0.05 = 5%) of the area inside it: such a
+        // part keeps its outline so other parts can nest into the pocket (nest_lib.preorient.ConcavePockets). Runs
+        // after grouping (outer = j 0) and, in Max deviation mode, after contain_simplify, so the pockets are measured
+        // on the loop that would be hulled. Like Hull = On, `outer_only` (Max deviation) hulls the outer loop only;
+        // otherwise every loop of the part is replaced by its own hull. Each new loop keeps the old one's winding.
+        public void auto_hull(double min_pocket, bool outer_only)
+        {
+            hull_auto_hulled = 0;
+            hull_auto_kept = 0;
+            for (int i = 0; i < this.boundary_sorted.Count; i++)
+            {
+                var grp = this.boundary_sorted[i];
+                if (grp == null || grp.Count == 0 || grp[0].Item2 == null || grp[0].Item2.Count < 4) continue;
+                if (nest_lib.preorient.ConcavePockets.HasPocketWorthKeeping(ToXy(grp[0].Item2), min_pocket))
+                {
+                    hull_auto_kept++;
+                    continue;
+                }
+                for (int j = 0; j < grp.Count && (j == 0 || !outer_only); j++)
+                {
+                    var tup = grp[j];
+                    if (tup.Item2 == null || tup.Item2.Count < 4) continue;
+                    var h = new Polyline(this.convex_hull(tup.Item2.ToList()));
+                    if (h.Count < 4) continue;
+                    if ((SignedAreaXy(h) < 0) != (SignedAreaXy(tup.Item2) < 0)) h.Reverse();
+                    grp[j] = Tuple.Create<int, Polyline, BoundingBox, Curve>(tup.Item1, h, tup.Item3, tup.Item4);
+                }
+                hull_auto_hulled++;
+            }
+        }
+
+        private static double[] ToXy(Polyline pl)
+        {
+            var xy = new double[pl.Count * 2];
+            for (int k = 0; k < pl.Count; k++) { xy[2 * k] = pl[k].X; xy[2 * k + 1] = pl[k].Y; }
+            return xy;
+        }
+
+        private static double SignedAreaXy(Polyline pl)
+        {
+            double a = 0;
+            for (int k = 0; k + 1 < pl.Count; k++) a += pl[k].X * pl[k + 1].Y - pl[k + 1].X * pl[k].Y;
+            if (pl.Count > 1 && !pl.IsClosed) a += pl[pl.Count - 1].X * pl[0].Y - pl[0].X * pl[pl.Count - 1].Y;
+            return a * 0.5;
+        }
+
         // One closed curve -> containing polygon within `eps`. isHole flips the material side. Null on failure.
         internal static Polyline contain_polyline(Curve crv, double eps, bool isHole, double tol)
         {
