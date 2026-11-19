@@ -19,7 +19,8 @@
         "runtime": {
           "lib/net7.0/Microsoft.Win32.SystemEvents.dll": {
             "assemblyVersion": "7.0.0.0",
-            "fileVersion": "7.0.22.51805"
+            "fileVersion": "7.0.22.51805",
+            "localPath": "Microsoft.Win32.SystemEvents.dll"
           }
         },
         "runtimeTargets": {
@@ -27,7 +28,8 @@
             "rid": "win",
             "assetType": "runtime",
             "assemblyVersion": "7.0.0.0",
-            "fileVersion": "7.0.22.51805"
+            "fileVersion": "7.0.22.51805",
+            "localPath": "runtimes/win/lib/net7.0/Microsoft.Win32.SystemEvents.dll"
           }
         }
       },
@@ -38,7 +40,8 @@
         "runtime": {
           "lib/net7.0/System.Drawing.Common.dll": {
             "assemblyVersion": "7.0.0.0",
-            "fileVersion": "7.0.22.51805"
+            "fileVersion": "7.0.22.51805",
+            "localPath": "System.Drawing.Common.dll"
           }
         },
         "runtimeTargets": {
@@ -46,7 +49,8 @@
             "rid": "win",
             "assetType": "runtime",
             "assemblyVersion": "7.0.0.0",
-            "fileVersion": "7.0.22.51805"
+            "fileVersion": "7.0.22.51805",
+            "localPath": "runtimes/win/lib/net7.0/System.Drawing.Common.dll"
           }
         }
       },
@@ -54,7 +58,8 @@
         "runtime": {
           "lib/netstandard2.0/System.Resources.Extensions.dll": {
             "assemblyVersion": "5.0.0.0",
-            "fileVersion": "5.0.20.51904"
+            "fileVersion": "5.0.20.51904",
+            "localPath": "System.Resources.Extensions.dll"
           }
         }
       }
