@@ -31,7 +31,8 @@ public:
 
     // Move constructor/assignment — transfer state, create fresh mutex
     NfpWorker(NfpWorker&& o) noexcept
-        : cacheProcess(std::move(o.cacheProcess)),
+        : shared(std::move(o.shared)),
+          cacheProcess(std::move(o.cacheProcess)),
           cacheMutex_(std::make_unique<std::mutex>()),
           window(std::move(o.window)),
           callCounter(o.callCounter.load()),
@@ -43,6 +44,7 @@ public:
 
     NfpWorker& operator=(NfpWorker&& o) noexcept {
         if (this != &o) {
+            shared = std::move(o.shared);
             cacheProcess = std::move(o.cacheProcess);
             cacheMutex_ = std::make_unique<std::mutex>();
             window = std::move(o.window);
@@ -58,7 +60,8 @@ public:
 
     // Copy constructor/assignment — copy data, fresh mutex & window
     NfpWorker(const NfpWorker& o)
-        : cacheProcess(o.cacheProcess),
+        : shared(o.shared),
+          cacheProcess(o.cacheProcess),
           cacheMutex_(std::make_unique<std::mutex>()),
           window(),  // fresh NfpCache (non-copyable due to unique_ptr<dbCache>)
           callCounter(o.callCounter.load()),
@@ -70,6 +73,7 @@ public:
 
     NfpWorker& operator=(const NfpWorker& o) {
         if (this != &o) {
+            shared = o.shared;
             cacheProcess = o.cacheProcess;
             cacheMutex_ = std::make_unique<std::mutex>();
             window = NfpCache();  // fresh
@@ -90,6 +94,22 @@ public:
     // because concurrent seeds toggle it independently (launchWorkersParallel turns it on for the pre-warm
     // and off while evaluating candidates).
     static thread_local bool UseParallel;
+
+    // --- NFP cache shared with other workers ---
+    // Parallel (turbo) searches compute the same part-to-part NFPs: the keys are part sources and rotations,
+    // identical in every seed's context. NestingContext::RunParallelSeeds points every seed's worker at ONE
+    // shared cache, so such an NFP is computed once for all seeds instead of once per seed. Only entries whose
+    // value cannot depend on WHICH code path computed them go there (results must not depend on which seed got
+    // there first): outer NFPs of hole-free parts (getOuterNfp and process() compute them identically from the
+    // part rotated by its absolute angle) and sheet inner-fit NFPs (one path). Outer NFPs of parts WITH holes
+    // (Process2 vs process() + hole patch) and hole inner-fits stay in the worker's own window, and so does the
+    // Process2 cache (its key does not tell a sheet frame from a part). Null = no sharing.
+    struct SharedCaches {
+        NfpCache window;
+    };
+    std::shared_ptr<SharedCaches> shared;
+    // The NFP cache for an entry: the shared one when set and the entry is shareable, else this worker's own.
+    NfpCache& win(bool shareable) { return (shared && shareable) ? shared->window : window; }
 
     // --- Instance caches (per-NfpWorker, protected by cacheMutex_) ---
     std::unordered_map<uint64_t, std::vector<std::shared_ptr<NFP>>> cacheProcess;

@@ -45,6 +45,8 @@ typedef struct NfpParams {
     int    compactionPasses;// post-placement compaction passes (0=off; lower=faster)
     int    tryAllRotations; // bool: evaluate every rotation per placement (slower, tighter)
     int    exactNfp;        // bool: full-resolution exact NFP (no simplify/dilate -> no gap, slower)
+    int    stallGenerations;// stall stop: a search ends after this many generations without a better layout
+                            // (generations still caps it); 0 = off (run every generation). In turbo, per seed.
 } NfpParams;
 
 // Main solve. Output arrays are caller-allocated, length = sum(part_quantities)

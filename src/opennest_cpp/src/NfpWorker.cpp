@@ -602,8 +602,10 @@ std::shared_ptr<NFP> NfpWorker::getOuterNfp(NFP& A, NFP& B, int type, bool insid
     cacheKey.B = B.source;
     cacheKey.ARotation = A.Rotation;
     cacheKey.BRotation = B.Rotation;
+    // Shareable across parallel searches only on the hole-free outer path (see NfpWorker::shared).
+    const bool share = !inside && A.children.empty();
 
-    auto doc = window.db->find(cacheKey);
+    auto doc = win(share).db->find(cacheKey);
     if (!doc.empty()) {
         return doc.front();
     }
@@ -686,7 +688,7 @@ std::shared_ptr<NFP> NfpWorker::getOuterNfp(NFP& A, NFP& B, int type, bool insid
         doc2.ARotation = A.Rotation;
         doc2.BRotation = B.Rotation;
         doc2.nfp = nfp;
-        window.db->insert(doc2);
+        win(share).db->insert(doc2);
     }
 
     return nfps;
@@ -709,7 +711,7 @@ std::vector<std::shared_ptr<NFP>> NfpWorker::getInnerNfp(NFP& A, NFP& B, int typ
         // poisoned the other (wrong feasible regions / lost placements).
         cacheKey.Type = 1;
 
-        auto res = window.db->find(cacheKey, true);
+        auto res = win(type == 0).db->find(cacheKey, true);
         if (!res.empty()) {
             // Return CLONES, not the cached objects: callers (nfpToClipperCoordinates) reverse the
             // winding in place. Sharing the cached object would corrupt it under concurrent placeParts
@@ -879,7 +881,7 @@ std::vector<std::shared_ptr<NFP>> NfpWorker::getInnerNfp(NFP& A, NFP& B, int typ
             doc.BRotation = B.Rotation;
             doc.Type = 1;   // inner-fit entry (see find above — avoids outer-key collision)
             doc.nfp = f;
-            window.db->insert(doc, true);
+            win(type == 0).db->insert(doc, true);
         }
         return f;
     }
@@ -914,7 +916,7 @@ std::vector<std::shared_ptr<NFP>> NfpWorker::getInnerNfp(NFP& A, NFP& B, int typ
         doc.BRotation = B.Rotation;
         doc.Type = 1;   // inner-fit entry (see find above — avoids outer-key collision)
         doc.nfp = ifpLoops;
-        window.db->insert(doc, true);
+        win(type == 0).db->insert(doc, true);
     }
     return ifpLoops;
 }
@@ -930,6 +932,14 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
 
     int i, j, k, m, n;
     [[maybe_unused]] double totalsheetarea = 0;  // retained for parity/diagnostics; no longer feeds fitness
+
+    // The unrotated parts by Id: every rotated copy below is made from these by its ABSOLUTE angle, so a
+    // (part, angle) always has bit-identical points however it was reached. The rotation-trial loop used to
+    // turn the previous copy by one more step, which differs in the last digits from turning the original
+    // once (as process() does) - harmless in one search, but parallel searches share one NFP cache keyed
+    // by (part, angle), and whichever search computed an entry first would then decide everyone's result.
+    std::unordered_map<int, std::shared_ptr<NFP>> unrotatedById;
+    for (auto& p : parts) unrotatedById.emplace(p->Id, p);
 
     // rotate parts by given rotation
     std::vector<std::shared_ptr<NFP>> rotated;
@@ -1029,18 +1039,23 @@ SheetPlacement NfpWorker::placeParts(std::vector<std::shared_ptr<NFP>> sheets, s
                         if (!config.tryAllRotations) break;
                     }
 
-                    // Rotate to next step
-                    auto r = std::make_shared<NFP>(rotatePolygon(*trialPart, rotStep));
-                    r->Rotation = trialPart->Rotation + rotStep;
-                    r->source = trialPart->source;
-                    r->Id = trialPart->Id;
-                    r->rotationCount = trialPart->rotationCount;
+                    // Rotate to next step: the unrotated part turned by the new absolute angle (see
+                    // unrotatedById), not the previous copy turned by one more step.
+                    float nextRotation = trialPart->Rotation + rotStep;
                     // >= so 360 normalizes to 0 — a float key of 360 is a DIFFERENT bit
                     // pattern than 0 and silently misses every rotation-keyed cache
                     // (DbCacheKey, clipCache).
-                    if (r->Rotation >= 360.0f) {
-                        r->Rotation = std::fmod(r->Rotation, 360.0f);
+                    if (nextRotation >= 360.0f) {
+                        nextRotation = std::fmod(nextRotation, 360.0f);
                     }
+                    auto base = unrotatedById.find(trialPart->Id);
+                    auto r = std::make_shared<NFP>(base != unrotatedById.end()
+                        ? rotatePolygon(*base->second, nextRotation)
+                        : rotatePolygon(*trialPart, rotStep));
+                    r->Rotation = nextRotation;
+                    r->source = trialPart->source;
+                    r->Id = trialPart->Id;
+                    r->rotationCount = trialPart->rotationCount;
                     trialPart = r;
                 }
             }
@@ -1973,7 +1988,7 @@ void NfpWorker::BackgroundStart(DataInfo d) {
             doc.BRotation = B->Rotation;
 
             uint64_t pk = makeProcessKey(key.Asource, key.Bsource, key.ARotation, key.BRotation);
-            if (pairKeys.insert(pk).second && !window.db->has(doc)) {
+            if (pairKeys.insert(pk).second && !win(A->children.empty()).db->has(doc)) {
                 pairs.push_back(key);
             }
         }
@@ -2032,7 +2047,7 @@ SheetPlacement NfpWorker::evaluateCandidate(DataInfo d) {
             doc.BRotation = B->Rotation;
 
             uint64_t pk = makeProcessKey(key.Asource, key.Bsource, key.ARotation, key.BRotation);
-            if (pairKeys.insert(pk).second && !window.db->has(doc)) {
+            if (pairKeys.insert(pk).second && !win(A->children.empty()).db->has(doc)) {
                 pairs.push_back(key);
             }
         }
@@ -2109,7 +2124,7 @@ void NfpWorker::thenIterate(NfpPair& processed, const std::vector<std::shared_pt
     if (processed.nfp) {
         doc.nfp = {processed.nfp};
     }
-    window.db->insert(doc);
+    win(!(A && !A->children.empty())).db->insert(doc);
 }
 
 void NfpWorker::thenDeepNest(std::vector<NfpPair>& processed, const std::vector<std::shared_ptr<NFP>>& parts) {

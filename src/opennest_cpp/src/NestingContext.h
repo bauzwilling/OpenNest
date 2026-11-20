@@ -27,6 +27,9 @@ public:
     double MaterialUtilization = 0;
     int PlacedPartsCount = 0;
     int Iterations = 0;
+    // How many times the best layout improved (AssignPlacement calls) since StartNest: the stall stop compares it
+    // between generations.
+    int Improvements = 0;
 
     SheetPlacement Current() const { return current; }
     bool HasCurrent() const { return hasCurrent; }

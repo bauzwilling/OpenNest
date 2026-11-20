@@ -378,6 +378,114 @@ void test_turbo_generation_parallel() {
     }
 }
 
+// Turbo search s uses seed + s, and all seeds share one NFP cache: with serial evaluation each seed is
+// reproducible, so the turbo result must be exactly one of the plain (mode 1) runs with seeds seed .. seed+n-1
+// — the shared cache only saves work, it does not change what a seed finds.
+void test_turbo_seeds_reproduce_single_searches() {
+    std::printf("turbo: seeds seed+s, shared NFP cache\n");
+    std::vector<SheetType> types{{1000, 500, -1}, {450, 320, -1}};
+    NfpParams turbo = params(9, 2, 0);
+    turbo.numSeeds = 3;
+    Result t = runV2(55, types, 1, turbo);
+    CHECK(t.rc >= 0, "turbo rc %d", t.rc);
+    bool matched = false;
+    for (int s = 0; s < 3; s++) matched |= sameLayout(t, runV2(55, types, 1, params(9 + s, 1, 0)));
+    CHECK(matched, "turbo with seeds 9..11 is none of the single searches with those seeds");
+    for (int k = 0; k < 3; k++)
+        CHECK(sameLayout(t, runV2(55, types, 1, turbo)), "turbo run %d differs from the first", k);
+}
+
+// Two part types, one with a hole (a 200x200 frame around a 120x120 opening) and 60x60 squares that fit in it,
+// on 1000x500 sheets: the hole takes the hole-aware NFP paths, which the shared cache must not make
+// timing-dependent either.
+Result runHoled(const NfpParams& p, int frames = 6, int squares = 20) {
+    std::vector<int> pvc{4, 4}, pqty{frames, squares}, phc{1, 0}, phvc{4};
+    std::vector<double> pxy, phxy;
+    rect(pxy, 200, 200);
+    rect(pxy, 60, 60);
+    double hole[] = {40, 40, 40, 160, 160, 160, 160, 40};   // clockwise
+    phxy.insert(phxy.end(), hole, hole + 8);
+    std::vector<int> svc{4}, shc{0};
+    std::vector<double> sxy;
+    rect(sxy, 1000, 500);
+    int n = frames + squares;
+    Result r;
+    r.tx.resize(n); r.ty.resize(n); r.angle.resize(n); r.sheetId.resize(n); r.partIndex.resize(n);
+    double fitness = 0;
+    r.rc = nfp_nest(2, pvc.data(), pxy.data(), pqty.data(), nullptr, phc.data(), phvc.data(), phxy.data(),
+                    1, svc.data(), sxy.data(), shc.data(), nullptr, nullptr,
+                    &p, r.tx.data(), r.ty.data(), r.angle.data(), r.sheetId.data(), r.partIndex.data(),
+                    &r.nSheets, &fitness);
+    r.placed = r.rc;
+    return r;
+}
+
+void test_turbo_shared_cache_with_holes() {
+    std::printf("turbo: shared NFP cache with holed parts\n");
+    for (int useHoles : {0, 1}) {
+        NfpParams turbo = params(9, 2, 0);
+        turbo.numSeeds = 3;
+        turbo.useHoles = useHoles;
+        Result t = runHoled(turbo);
+        CHECK(t.rc == 26, "holes %d: turbo placed %d of 26", useHoles, t.rc);
+        bool matched = false;
+        for (int s = 0; s < 3; s++) {
+            NfpParams single = params(9 + s, 1, 0);
+            single.useHoles = useHoles;
+            matched |= sameLayout(t, runHoled(single));
+        }
+        CHECK(matched, "holes %d: turbo is none of the single searches with its seeds", useHoles);
+        for (int k = 0; k < 3; k++)
+            CHECK(sameLayout(t, runHoled(turbo)), "holes %d: turbo run %d differs from the first", useHoles, k);
+    }
+    // Parallel evaluation inside each seed (as NestingService runs it): with every rotated copy made from the
+    // unrotated part and only path-independent entries shared, repeated runs give the same layout.
+    NfpParams par = params(9, 2, 1);
+    par.numSeeds = 3;
+    std::vector<SheetType> types{{1000, 500, -1}, {450, 320, -1}};
+    Result p0 = runV2(55, types, 1, par);
+    Result h0 = runHoled(par);
+    for (int k = 0; k < 3; k++) {
+        CHECK(sameLayout(p0, runV2(55, types, 1, par)), "parallel turbo run %d differs from the first", k);
+        CHECK(sameLayout(h0, runHoled(par)), "parallel turbo with holes run %d differs from the first", k);
+    }
+}
+
+// Stall stop: a search ends once its best has not improved for stallGenerations generations. A limit larger
+// than the generations changes nothing; a small one ends the search early with a valid layout.
+void test_stall_stop() {
+    std::printf("stall stop\n");
+    std::vector<SheetType> types{{1000, 500, -1}, {450, 320, -1}};
+    NfpParams full = params(9, 1, 0);
+    full.generations = 40;
+    Result all = runV2(55, types, 1, full);
+    NfpParams lax = full;
+    lax.stallGenerations = 1000;
+    CHECK(sameLayout(all, runV2(55, types, 1, lax)), "a stall limit above the generations changed the layout");
+    CHECK(nfp_progress() == 40, "lax stall: ran %lld of 40 generations", nfp_progress());
+
+    NfpParams tight = full;
+    tight.stallGenerations = 2;
+    Result early = runV2(55, types, 1, tight);
+    long long ran = nfp_progress();
+    CHECK(early.rc == 55, "stall-stopped run placed %d of 55", early.rc);
+    checkOutputs(early, 2, "stall");
+    CHECK(ran < 40, "stall 2: ran all 40 generations");
+    // Stopping at generation `ran` is the same as running exactly `ran` generations.
+    NfpParams capped = full;
+    capped.generations = static_cast<int>(ran);
+    CHECK(sameLayout(early, runV2(55, types, 1, capped)), "stall stop at %lld differs from %lld generations", ran, ran);
+
+    // Turbo: each seed stops on its own; the result is still valid.
+    NfpParams turbo = params(9, 2, 1);
+    turbo.generations = 40;
+    turbo.numSeeds = 3;
+    turbo.stallGenerations = 2;
+    Result te = runV2(55, types, 1, turbo);
+    CHECK(te.rc == 55, "turbo stall placed %d of 55", te.rc);
+    checkOutputs(te, 2, "turbo stall");
+}
+
 // compare_sheet_types: the per-sheet run, then each type alone, each with the full generations;
 // the result is the best of those whole layouts (least unplaced, then least cost within the tie margin,
 // then fewer sheets). Serial runs are reproducible, so the winner must equal one of the separate runs.
@@ -450,6 +558,9 @@ int main() {
     test_determinism_and_faithful();
     test_cancel_returns_best_so_far();
     test_turbo_generation_parallel();
+    test_turbo_seeds_reproduce_single_searches();
+    test_turbo_shared_cache_with_holes();
+    test_stall_stop();
     test_compare_sheet_types();
     if (g_failures) {
         std::printf("%d check(s) FAILED\n", g_failures);
