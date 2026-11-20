@@ -21,6 +21,10 @@ struct NestConfig {
     bool simplify = false;
     int seed = -1;
 
+    // Stall stop: a search ends once its best layout has not improved for this many generations (generations
+    // still caps it; a time budget or nfp_cancel still stops it earlier). 0 = off: run every generation.
+    int stallGenerations = 0;
+
     // Faithful mode (C-API mode 0): mirror the canonical C# GeneticAlgorithm.cs + Background.placeParts
     // fitness EXACTLY (same RNG call order, single elitism, canonical fitness) for parity verification.
     // When true, the divergent C++ heuristics (clustering/SA/rebuild/adaptive mutation) are bypassed.

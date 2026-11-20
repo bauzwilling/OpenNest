@@ -404,6 +404,11 @@ void NestingEngine::launchWorkersParallel(const std::vector<NestItem>& parts) {
     {
         std::vector<NfpPair> unionPairs;
         std::unordered_set<uint64_t> seen;
+        // Sources of parts with holes: their outer NFPs stay in this worker's own cache (see NfpWorker::shared).
+        std::unordered_set<int> holedSources;
+        for (auto& d : datas)
+            for (size_t i = 0; i < d.individual.placements.size(); i++)
+                if (!d.individual.placements[i]->children.empty()) holedSources.insert(d.sources[i]);
         auto mkKey = [](int as, int bs, float ar, float br) -> uint64_t {
             uint64_t k = 1469598103934665603ULL;
             auto mix = [&](uint64_t v) { k ^= v; k *= 1099511628211ULL; };
@@ -423,7 +428,7 @@ void NestingEngine::launchWorkersParallel(const std::vector<NestItem>& parts) {
                     if (!seen.insert(key).second) continue;
                     DbCacheKey doc;
                     doc.A = as; doc.B = bs; doc.ARotation = ar; doc.BRotation = br;
-                    if (background.window.db->has(doc)) continue;  // already cached from a previous generation
+                    if (background.win(!holedSources.count(as)).db->has(doc)) continue;  // already cached from a previous generation
                     NfpPair np;
                     np.A = d.individual.placements[j].get();  // unrotated clone; process() rotates by ARotation
                     np.B = d.individual.placements[i].get();
@@ -442,7 +447,7 @@ void NestingEngine::launchWorkersParallel(const std::vector<NestItem>& parts) {
                 doc.A = pr.Asource; doc.B = pr.Bsource;
                 doc.ARotation = pr.ARotation; doc.BRotation = pr.BRotation;
                 if (pr.nfp) doc.nfp = { pr.nfp };
-                background.window.db->insert(doc);
+                background.win(!holedSources.count(pr.Asource)).db->insert(doc);
             }
         }
         if (prof) {

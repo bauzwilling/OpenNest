@@ -18,7 +18,7 @@ struct NfpParams {
     public double curveTolerance, clipperScale, spacing, sheetSpacing, rotationLimit;
     public int useHoles, exploreConcave, clipByHull, clipByRects, simplify, mode, generations, numSeeds, useParallel;
     public double timeBudgetSecs;
-    public int maxSheets, edgeSamples, compactionPasses, tryAllRotations, exactNfp;
+    public int maxSheets, edgeSamples, compactionPasses, tryAllRotations, exactNfp, stallGenerations;
 }
 
 static class Program {

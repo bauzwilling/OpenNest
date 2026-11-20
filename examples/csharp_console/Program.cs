@@ -21,7 +21,7 @@ internal static class Program
         public int useHoles, exploreConcave, clipByHull, clipByRects, simplify,
                    mode, generations, numSeeds, useParallel;
         public double timeBudgetSecs;
-        public int maxSheets, edgeSamples, compactionPasses, tryAllRotations, exactNfp;
+        public int maxSheets, edgeSamples, compactionPasses, tryAllRotations, exactNfp, stallGenerations;
     }
 
     [StructLayout(LayoutKind.Sequential)]

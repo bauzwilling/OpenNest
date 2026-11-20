@@ -52,6 +52,7 @@ NestConfig toConfig(const NfpParams* p) {
     // compatibility but map to nothing: their engine paths were dead code and removed.)
     c.faithful       = (p->mode == 0);   // mode 0 = faithful parity with the C# engine
     c.exactNfp       = (p->exactNfp != 0);
+    c.stallGenerations = p->stallGenerations > 0 ? p->stallGenerations : 0;
     c.parallelPopulation = (p->mode == 1) && (p->useParallel != 0);
     if (c.faithful) {
         // The canonical C# Background.placeParts has NO compaction / edge-sampling — turn the
@@ -550,6 +551,18 @@ int runSolve(NestingContext& ctx, const NestConfig& cfg, const NfpParams* params
                              && (std::getenv("NFP_FORCE_SERIAL") == nullptr);
     long long placeMsTotal = 0;
     auto t0 = std::chrono::steady_clock::now();
+    // Stall stop: true once the best layout has not improved for cfg.stallGenerations generations.
+    int seenImprovements = -1;
+    long lastImprovedGen = 0;
+    auto stalled = [&](long gen) {
+        if (cfg.stallGenerations <= 0) return false;
+        if (ctx.Improvements != seenImprovements) {
+            seenImprovements = ctx.Improvements;
+            lastImprovedGen = gen;
+            return false;
+        }
+        return gen - lastImprovedGen >= cfg.stallGenerations;
+    };
 
     if (genParallel) {
         for (long gen = 1; ; gen++) {
@@ -564,6 +577,7 @@ int runSolve(NestingContext& ctx, const NestConfig& cfg, const NfpParams* params
             g_progress = gen;
             if (ctx.HasCurrent()) g_fitness = ctx.Current().fitness.value_or(0.0);
             updateSnapshot(ctx, instancePart);
+            if (stalled(gen)) break;
         }
     } else {
         for (long step = 1; ; step++) {
@@ -579,6 +593,7 @@ int runSolve(NestingContext& ctx, const NestConfig& cfg, const NfpParams* params
             g_progress = (step - 1) / pop + 1;
             if (ctx.HasCurrent()) g_fitness = ctx.Current().fitness.value_or(0.0);
             updateSnapshot(ctx, instancePart);
+            if (step % pop == 0 && stalled(step / pop)) break;
         }
     }
     if (profile) {

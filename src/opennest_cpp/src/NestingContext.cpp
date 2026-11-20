@@ -16,8 +16,10 @@ void NestingContext::StartNest() {
     Nest.sheetChildrenCache.clear();
     Nest.background.cacheProcess.clear();
     Nest.background.window = NfpCache();
+    Nest.background.shared.reset();   // RunParallelSeeds sets a shared set after StartNest
     Nest.background.callCounter = 0;
     Iterations = 0;
+    Improvements = 0;
 }
 
 void NestingContext::init() {
@@ -190,6 +192,7 @@ void NestingContext::NestIterateGeneration() {
 void NestingContext::AssignPlacement(const SheetPlacement& plcpr) {
     current = plcpr;
     hasCurrent = true;
+    Improvements++;
     double totalSheetsArea = 0;
     double totalPartsArea = 0;
     PlacedPartsCount = 0;
@@ -343,14 +346,27 @@ NestingContext NestingContext::RunParallelSeeds(
         contexts[s]->StartNest();
     }
 
+    // One NFP cache set for all seeds (keys are part sources + rotations, identical in every context): a
+    // part-to-part NFP is computed once instead of once per seed. Results are unchanged, since a cached NFP is
+    // exactly what the seed would have computed itself.
+    if (std::getenv("NFP_NO_SHARED_CACHE") == nullptr) {
+        auto sharedCaches = std::make_shared<NfpWorker::SharedCaches>();
+        for (int s = 0; s < numSeeds; s++) contexts[s]->Nest.background.shared = sharedCaches;
+    }
+
     // Run all seeds in parallel
     // NfpWorker::UseParallel is per thread: each seed thread takes the caller's setting.
     const bool parallel = NfpWorker::UseParallel;
     std::vector<std::thread> threads;
     for (int s = 0; s < numSeeds; s++) {
         threads.emplace_back([&contexts, s, iterationsPerSeed, &progressCallback, &progressMutex, &shouldStop,
-                              parallel, generationParallel]() {
+                              parallel, generationParallel, &baseConfig]() {
             NfpWorker::UseParallel = parallel;
+            // Stall stop (per seed): end this seed once its best has not improved for stallGenerations generations.
+            const int stall = baseConfig.stallGenerations;
+            const int pop = std::max(1, baseConfig.populationSize);
+            int seenImprovements = -1;
+            long lastImprovedGen = 0;
             for (int i = 0; i < iterationsPerSeed; i++) {
                 if (shouldStop && shouldStop()) break;
                 if (generationParallel) contexts[s]->NestIterateGeneration();
@@ -358,6 +374,17 @@ NestingContext NestingContext::RunParallelSeeds(
                 if (progressCallback) {
                     std::lock_guard<std::mutex> lock(progressMutex);
                     progressCallback(s, contexts[s]->Iterations, *contexts[s]);
+                }
+                if (stall > 0) {
+                    const bool genEnd = generationParallel || (i + 1) % pop == 0;
+                    if (!genEnd) continue;
+                    const long gen = generationParallel ? i + 1 : (i + 1) / pop;
+                    if (contexts[s]->Improvements != seenImprovements) {
+                        seenImprovements = contexts[s]->Improvements;
+                        lastImprovedGen = gen;
+                    } else if (gen - lastImprovedGen >= stall) {
+                        break;
+                    }
                 }
             }
         });

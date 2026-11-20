@@ -58,3 +58,17 @@ int placed = nfp_nest_v2(4, pvc, pxy, pqty, NULL, part_holes, NULL, NULL,
                          0 /* compare_sheet_types: 1 = also try each type alone */,
                          &p, tx, ty, ang, sid, pidx, stype, &n_sheets, &fitness);
 ```
+
+## Search length and parallel searches
+
+- **`generations`** caps how long one search runs. **`stallGenerations`** (default `0` = off) ends a search earlier, once its
+  best layout has not improved for that many generations. Make it long: the decisive improvement can come after a long
+  plateau (on one 12-part job the 2-sheet layout came 1000–1500 generations after the last improvement, so a window of
+  1000 stayed on 3 sheets and 1500 found 2), while on a job that settles early a short window saves most of the time.
+- **`mode = 2`** (turbo) runs `numSeeds` searches in parallel with seeds `seed`, `seed + 1`, …; search `s` gives exactly what
+  a single `mode = 1` search with seed `seed + s` gives, and the best layout is returned. Each search stops on its own
+  `stallGenerations`.
+- The parallel searches **share** the part-to-part NFPs of hole-free parts and the sheet inner-fit NFPs, so each is
+  computed once for all seeds (11–29% faster on a 12-part job with 4–8 seeds; parts with holes keep per-search NFPs).
+  Sharing never changes the result: every rotated part is built from the unrotated part by its absolute angle, so an
+  entry is the same whichever search computes it. `NFP_NO_SHARED_CACHE=1` in the environment turns sharing off.
