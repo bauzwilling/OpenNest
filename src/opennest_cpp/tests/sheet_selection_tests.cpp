@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <thread>
@@ -28,6 +29,15 @@ int g_failures = 0;
             std::printf("\n");                                                  \
         }                                                                       \
     } while (0)
+
+// Set or clear an environment variable for the engine (it reads NFP_NO_SHARED_CACHE per solve).
+void setEnv(const char* name, bool on) {
+#ifdef _WIN32
+    _putenv_s(name, on ? "1" : "");
+#else
+    if (on) setenv(name, "1", 1); else unsetenv(name);
+#endif
+}
 
 struct SheetType {
     double w, h;
@@ -379,8 +389,9 @@ void test_turbo_generation_parallel() {
 }
 
 // Turbo search s uses seed + s, and all seeds share one NFP cache: with serial evaluation each seed is
-// reproducible, so the turbo result must be exactly one of the plain (mode 1) runs with seeds seed .. seed+n-1
-// — the shared cache only saves work, it does not change what a seed finds.
+// reproducible. This job is ONE part with 55 copies, so the odd seeds' spread-copies start is the same order as
+// the even seeds' start, and the turbo result must be exactly one of the plain (mode 1) runs with seeds
+// seed .. seed+n-1 — the shared cache only saves work, it does not change what a seed finds.
 void test_turbo_seeds_reproduce_single_searches() {
     std::printf("turbo: seeds seed+s, shared NFP cache\n");
     std::vector<SheetType> types{{1000, 500, -1}, {450, 320, -1}};
@@ -428,13 +439,12 @@ void test_turbo_shared_cache_with_holes() {
         turbo.useHoles = useHoles;
         Result t = runHoled(turbo);
         CHECK(t.rc == 26, "holes %d: turbo placed %d of 26", useHoles, t.rc);
-        bool matched = false;
-        for (int s = 0; s < 3; s++) {
-            NfpParams single = params(9 + s, 1, 0);
-            single.useHoles = useHoles;
-            matched |= sameLayout(t, runHoled(single));
-        }
-        CHECK(matched, "holes %d: turbo is none of the single searches with its seeds", useHoles);
+        // Two part types: odd seeds start with copies spread, so compare with the same turbo run WITHOUT
+        // sharing (each seed its own cache) — sharing must not change the result.
+        setEnv("NFP_NO_SHARED_CACHE", true);
+        Result unshared = runHoled(turbo);
+        setEnv("NFP_NO_SHARED_CACHE", false);
+        CHECK(sameLayout(t, unshared), "holes %d: the shared NFP cache changed the turbo result", useHoles);
         for (int k = 0; k < 3; k++)
             CHECK(sameLayout(t, runHoled(turbo)), "holes %d: turbo run %d differs from the first", useHoles, k);
     }

@@ -342,6 +342,13 @@ NestingContext NestingContext::RunParallelSeeds(
         // caller seed (< 0) keeps the former fixed seeds s*1000+42.
         contexts[s]->config = baseConfig;
         contexts[s]->config.seed = baseConfig.seed >= 0 ? baseConfig.seed + s : s * 1000 + 42;
+        // Two kinds of start, alternating: even seeds start from the usual largest-first order, where a part's
+        // copies sit next to each other (equal areas), and tend to end with those copies on the same sheet; odd
+        // seeds start with copies spread in rounds (one of each part, then the next copy of each), the order a
+        // "one of each part per sheet" layout needs. On a 12-strip job (6 shapes x 2) that fits 2 sheets only that
+        // way, 4 searches of the first kind found it for 1 of 6 seeds, the mixed 4 for 6 of 6, with no change
+        // elsewhere. Parts without copies start the same either way.
+        contexts[s]->config.spreadCopies = (s % 2 == 1);
 
         contexts[s]->StartNest();
     }

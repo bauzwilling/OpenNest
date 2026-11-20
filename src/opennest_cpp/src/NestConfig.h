@@ -25,6 +25,11 @@ struct NestConfig {
     // still caps it; a time budget or nfp_cancel still stops it earlier). 0 = off: run every generation.
     int stallGenerations = 0;
 
+    // Start the GA from the area-sorted order with copies spread in rounds (one instance of each part, then the
+    // next copy of each, ...) instead of a part's copies next to each other (equal areas sort together). Set by
+    // RunParallelSeeds for every odd seed; see there.
+    bool spreadCopies = false;
+
     // Faithful mode (C-API mode 0): mirror the canonical C# GeneticAlgorithm.cs + Background.placeParts
     // fitness EXACTLY (same RNG call order, single elitism, canonical fitness) for parity verification.
     // When true, the divergent C++ heuristics (clustering/SA/rebuild/adaptive mutation) are bypassed.

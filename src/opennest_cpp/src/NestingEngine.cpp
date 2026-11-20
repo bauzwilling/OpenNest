@@ -261,6 +261,21 @@ void NestingEngine::launchWorkers(const std::vector<NestItem>& parts) {
             return std::fabs(GeometryUtil::polygonArea(*a)) > std::fabs(GeometryUtil::polygonArea(*b));
         });
 
+        if (config.spreadCopies) {
+            // Copies in rounds: sources in their area-sorted order, one instance of each per round.
+            std::vector<int> order;
+            std::unordered_map<int, std::vector<std::shared_ptr<NFP>>> bySource;
+            for (auto& a : adam) {
+                int src = a->source.value_or(-1);
+                if (!bySource.count(src)) order.push_back(src);
+                bySource[src].push_back(a);
+            }
+            std::vector<std::shared_ptr<NFP>> spread;
+            for (size_t round = 0; spread.size() < adam.size(); round++)
+                for (int src : order)
+                    if (round < bySource[src].size()) spread.push_back(bySource[src][round]);
+            adam = spread;
+        }
         ga = std::make_unique<GeneticAlgorithm>(adam, config);
     }
 
@@ -339,6 +354,21 @@ void NestingEngine::launchWorkersParallel(const std::vector<NestItem>& parts) {
         std::sort(adam.begin(), adam.end(), [](const std::shared_ptr<NFP>& a, const std::shared_ptr<NFP>& b) {
             return std::fabs(GeometryUtil::polygonArea(*a)) > std::fabs(GeometryUtil::polygonArea(*b));
         });
+        if (config.spreadCopies) {
+            // Copies in rounds: sources in their area-sorted order, one instance of each per round.
+            std::vector<int> order;
+            std::unordered_map<int, std::vector<std::shared_ptr<NFP>>> bySource;
+            for (auto& a : adam) {
+                int src = a->source.value_or(-1);
+                if (!bySource.count(src)) order.push_back(src);
+                bySource[src].push_back(a);
+            }
+            std::vector<std::shared_ptr<NFP>> spread;
+            for (size_t round = 0; spread.size() < adam.size(); round++)
+                for (int src : order)
+                    if (round < bySource[src].size()) spread.push_back(bySource[src][round]);
+            adam = spread;
+        }
         ga = std::make_unique<GeneticAlgorithm>(adam, config);
     }
 
