@@ -53,8 +53,13 @@ static class Program {
   plateau (on one 12-part job the 2-sheet layout came 1000–1500 generations after the last improvement, so a window of
   1000 stayed on 3 sheets and 1500 found 2), while on a job that settles early a short window saves most of the time.
 - **`mode = 2`** (turbo) runs `numSeeds` searches in parallel with seeds `seed`, `seed + 1`, …; search `s` gives exactly what
-  a single `mode = 1` search with seed `seed + s` gives, and the best layout is returned. Each search stops on its own
+  a single `mode = 1` search with seed `seed + s` gives (for odd `s`, with the spread start below), and the best
+  layout is returned. Each search stops on its own
   `stallGenerations`.
+- Half the parallel searches start differently: even seeds from the usual largest-first order (a part's copies next
+  to each other), odd seeds with copies spread in rounds (one of each part, then the next copy of each). On a
+  12-strip job (6 shapes x 2) that fits 2 sheets only with one of each shape per sheet, 4 searches of the first
+  kind found it for 1 of 6 seeds and the mixed 4 for 6 of 6. Parts without copies start the same either way.
 - The parallel searches **share** the part-to-part NFPs of hole-free parts and the sheet inner-fit NFPs, so each is
   computed once for all seeds (11–29% faster on a 12-part job with 4–8 seeds; parts with holes keep per-search NFPs).
   Sharing never changes the result: every rotated part is built from the unrotated part by its absolute angle, so an
