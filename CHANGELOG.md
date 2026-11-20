@@ -8,6 +8,12 @@ GitHub Releases. Each entry describes what the release actually changed.
 > the previous tag), so a clear commit subject per push becomes the changelog line — refine an entry
 > here anytime if you want more detail.
 
+## [2.89.12.0] - 2026-11-20
+- engine (nfp_nest API, turbo mode; the plug-ins use the default mode): searches use the caller's seed, seed+1, ... instead of fixed seeds, and **odd searches start with a part's copies spread in rounds** (one of each part, then the next of each) instead of side by side. Jobs of repeated parts now find the one-of-each-per-sheet layouts: a 12-part template job (6 parts x 2) reached 2 sheets on 6 of 6 seeds, against 1 of 6 before
+- engine (turbo mode): parallel searches **share hole-free part-to-part and sheet NFPs**, so each one is computed once instead of once per search; results stay identical to unshared runs (env `NFP_NO_SHARED_CACHE=1` turns sharing off)
+- engine (nfp_nest API): optional **stall stop**, `stallGenerations` (the former padding at offset 132; the struct stays 136 bytes): a search ends once its best layout has not improved for that many generations. 0 = off (default), so existing callers are unchanged
+- engine: every rotated copy of a part is now made from the unrotated part at its absolute angle (before, angles were applied one after another), which keeps shared-cache runs reproducible. A saved definition can land on a slightly different, equally valid layout than with 2.89.11
+
 ## [2.89.11.0] - 2026-11-19
 - geometry: new **Hull: Auto** (Geometry / Geometry (Surfaces): right-click, with **Auto min pocket (%)** in the same menu; Geometry (Rhino): Simplify `[divisions, 2, mode, pocket %]`). It hulls every part EXCEPT those with a concave pocket (the area between a hull edge and the outline) of at least that share of their area (default 5%): those keep their outline so other parts can nest into the pocket. The largest pocket counts, not their sum, so parts with only small notches are still hulled. The component message shows `Hull auto 5%` and a remark counts the parts hulled and kept
 - geometry: **Hull Auto is the default for new components**: Hull defaults to True with Hull: Auto on, and Geometry (Rhino) to Simplify `[0, 2]`. Saved files keep their settings (Auto off), so existing definitions nest as before. Concave parts that keep their outline nest slower than their hulls; uncheck Hull: Auto when speed matters more
